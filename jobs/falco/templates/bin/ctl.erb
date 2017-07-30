@@ -1,0 +1,45 @@
+#!/bin/bash
+
+set -eux
+
+exec >>/var/vcap/sys/log/falco/stdout.log 2>>/var/vcap/sys/log/falco/stderr.log
+
+mkdir -p /var/vcap/sys/log/falco
+mkdir -p /var/vcap/sys/run/falco
+
+PIDFILE=/var/vcap/sys/run/falco/falco.pid
+
+case $1 in
+
+  start)
+    echo $$ > $PIDFILE
+
+    # always reload kernel module in case we've updated
+    lsmod | grep falco_probe && rmmod falco_probe
+    insmod /var/vcap/packages/falco/lib/falco-probe.ko
+
+    exec /var/vcap/packages/falco/bin/falco \
+      -c /var/vcap/jobs/falco/config/falco.yaml \
+      -r /var/vcap/packages/falco/etc/falco_rules.yaml \
+      -r /var/vcap/jobs/falco/config/falco_rules.yaml \
+      -s /var/vcap/sys/log/falco/stats.log
+
+    ;;
+
+  stop)
+    pid=$(cat ${PIDFILE})
+
+    kill ${pid}
+    tail --pid=${pid} -f /dev/null
+
+    rmmod falco_probe
+
+    ;;
+
+  *)
+    echo "Usage: $0 {start|stop}"
+
+    ;;
+
+esac
+exit 0

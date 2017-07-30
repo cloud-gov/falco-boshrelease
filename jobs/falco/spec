@@ -2,5 +2,37 @@
 name: falco
 packages:
 - falco
-templates: {}
-properties: {}
+templates:
+  bin/ctl.erb: bin/ctl
+  config/falco.yaml.erb: config/falco.yaml
+  config/falco_rules.yaml.erb: config/falco_rules.yaml
+properties:
+  configuration:
+    description: A hash representing the falco.yml configuration file https://github.com/draios/falco/wiki/Falco-Configuration
+    default:
+      json_output: true
+      log_stderr: true
+      log_syslog: false
+      log_level: info
+      outputs:
+        rate: 1
+        max_burst: 1000
+      syslog_output:
+        enabled: false
+      file_output:
+        enabled: true
+        filename: /var/vcap/sys/log/falco/event.log
+      stdout_output:
+        enabled: false
+      program_output:
+        enabled: false
+        program: /bin/true
+  rules:
+    description: A list representing custom falco rules to load https://github.com/draios/falco/wiki/Falco%20Rules
+    default: []
+    example:
+    - rule: shell_in_container
+      desc: notice shell activity within a container
+      condition: container.id != host and proc.name = bash
+      output: shell in a container (user=%user.name container_id=%container.id container_name=%container.name shell=%proc.name parent=%proc.pname cmdline=%proc.cmdline)
+      priority: WARNING

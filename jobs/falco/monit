@@ -1,0 +1,4 @@
+check process falco
+  with pidfile /var/vcap/sys/run/falco/falco.pid
+  start program "/var/vcap/jobs/falco/bin/ctl start"
+  stop program "/var/vcap/jobs/falco/bin/ctl stop"
