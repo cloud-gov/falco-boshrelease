@@ -1,5 +1,9 @@
 # falco-boshrelease
 
+WIP BOSH release for [Sysdig Falco](https://github.com/draios/falco).  This release is functional, but still under development and breaking changes are quite likely. This message will be removed once this release is considered stable.
+
+[![Falco Statue im Kurpark von Gars am Kamp in Niederösterreich](https://upload.wikimedia.org/wikipedia/commons/5/5e/Falco-Statue-02.jpg)](https://www.youtube.com/watch?v=kfjKMHTwM44)
+
 ## Contributing
 
 See [CONTRIBUTING](CONTRIBUTING.md) for additional information.
