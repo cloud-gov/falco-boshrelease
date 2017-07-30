@@ -1,0 +1,12 @@
+---
+name: falco
+
+files:
+- falco/**/*
+- sysdig/**/*
+- jq-1.5/*
+- libb64-1.2/*
+- yaml-cpp/**/*
+- LuaJIT-2.0.3/*
+- lpeg-1.0.0/*
+- lyaml-release-v6.0/*

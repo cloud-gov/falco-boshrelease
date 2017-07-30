@@ -1,0 +1,9 @@
+[submodule "src/falco"]
+	path = src/falco
+	url = https://github.com/draios/falco
+[submodule "src/sysdig"]
+	path = src/sysdig
+	url = https://github.com/draios/sysdig
+[submodule "src/yaml-cpp"]
+	path = src/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp.git

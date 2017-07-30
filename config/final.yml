@@ -1,0 +1,8 @@
+---
+blobstore:
+  provider: s3
+  options:
+    region: us-gov-west-1
+    bucket_name: cloud-gov-release-blobstore
+    server_side_encryption: AES256
+final_name: falco

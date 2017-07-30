@@ -1,0 +1,21 @@
+---
+jq-1.5/jq-1.5.tar.gz:
+  object_id: 46128814-0d7b-46d6-a51c-cd3ef2e18ef5
+  sha: 6eef3705ac0a322e8aa0521c57ce339671838277
+  size: 739309
+libb64-1.2/libb64-1.2.src.zip:
+  object_id: 3cd823cd-4ef7-4afd-a877-dff0c1220d3d
+  sha: 3366ec1c65f504ebf9adcc57ec3c581282423ea9
+  size: 16063
+lpeg-1.0.0/lpeg-1.0.0.tar.gz:
+  object_id: 6f9bac1d-fdf7-4d48-8f5b-e6961349bf3d
+  sha: 64a0920c9243b624a277c987d2219b6c50c43971
+  size: 70267
+LuaJIT-2.0.3/LuaJIT-2.0.3.tar.gz:
+  object_id: 54f5ce91-696a-4593-844b-ff6b0471af21
+  sha: 2db39e7d1264918c2266b0436c313fbd12da4ceb
+  size: 844927
+lyaml-release-v6.0/lyaml-release-v6.0.tar.gz:
+  object_id: e0fc0c7c-c8cf-4cab-9cc3-2641c6efe863
+  sha: b5cd3b0e5876c1a6074e51d288f3938c0056ba8a
+  size: 475288

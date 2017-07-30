@@ -1,0 +1,89 @@
+set -e
+
+# https://github.com/draios/falco/wiki/How-to-Install-Falco-from-Source
+
+# need the kernel headers for whatever the stemcell ships
+# TODO: Is there a better way to vendor this that won't break on every stemcell that bumps the kernel?
+apt-get install -y linux-headers-`uname -r`
+
+# Unless USE_BUNDLED_DEPS is OFF, falco will expect to be able to reach the internet
+# and pull down dependencies from github and http://download.draios.com/dependencies/ (http!)
+
+# These build steps were extracted from falco/CMakeLists.txt
+JQ=$(readlink -f jq-1.5)
+tar xzvf jq-1.5/*.tar.gz
+pushd jq-1.5
+  ./configure --disable-maintainer-mode \
+  --enable-all-static \
+  --disable-dependency-tracking \
+  --disable-shared
+  make
+popd
+
+LIBB64=$(readlink -f libb64-1.2)
+unzip libb64-1.2/*.zip
+pushd libb64-1.2
+  make
+popd
+
+YAMLCPP=$(readlink -f yaml-cpp)
+pushd yaml-cpp
+  mkdir build
+  cd build
+  cmake ..
+  make
+popd
+
+LUAJIT=$(readlink -f LuaJIT-2.0.3)
+tar xzvf LuaJIT-2.0.3/*.tar.gz
+pushd LuaJIT-2.0.3
+  make BUILDMODE=static
+popd
+
+LPEG=$(readlink -f lpeg-1.0.0)
+tar xzvf lpeg-1.0.0/*.tar.gz
+pushd lpeg-1.0.0
+  LUA_INCLUDE=${LUAJIT}/src ../falco/scripts/build-lpeg.sh ${LPEG}/build
+popd
+
+LYAML=$(readlink -f lyaml-release-v6.0)
+tar xzvf lyaml-release-v6.0/*.tar.gz
+pushd lyaml-release-v6.0
+  ./configure --enable-static \
+  LUA_INCLUDE=-I${LUAJIT}/src \
+  LUA=${LUAJIT}/src/luajit
+  make
+  cp -R  lib/* ../falco/userspace/engine/lua/
+popd
+
+# These search paths were extracted from falco/CmakeLists.txt
+export CMAKE_INCLUDE_PATH="${JQ}:${LIBB64}/include:${YAMLCPP}/include:${LUAJIT}/src"
+export CMAKE_LIBRARY_PATH="${JQ}/.libs:${LIBB64}/src:${YAMLCPP}/build:${LUAJIT}/src:${LPEG}/build:${LYAML}/ext/yaml/.libs"
+
+pushd falco
+  # TODO: PR falco so these settings can be overwritten with cmake -D
+
+  # cmake file hardcodes things into /usr and /etc
+  sed -i 's|^\(set(CMAKE_INSTALL_PREFIX\) .*)|\1 '${BOSH_INSTALL_TARGET}')|' CMakeLists.txt
+  sed -i 's|\(set(FALCO_ETC_DIR\) .*)|\1 "'${BOSH_INSTALL_TARGET}'/etc")|' CMakeLists.txt
+
+  # source code also hardcodes to /etc
+  sed -i 's|\(#define FALCO_INSTALL_CONF_FILE\) .*|\1 "'${BOSH_INSTALL_TARGET}'/etc/falco.yaml"|' userspace/falco/config_falco.h.in
+
+  # config file wants /etc for the default as well
+  sed -i 's|^\(rules_file:\) \(.*\)|\1 '${BOSH_INSTALL_TARGET}'\2|' falco.yaml
+
+  mkdir build
+  cd build
+  cmake -DUSE_BUNDLED_DEPS=OFF ..
+  make
+  make install
+
+  # copy the kernel module to a known location so the job script can install it
+  mkdir -p ${BOSH_INSTALL_TARGET}/lib
+  cp driver/falco-probe.ko ${BOSH_INSTALL_TARGET}/lib
+
+  # this is junk and in certain cases will attempt to download pre-compiled kernel modules from the internet
+  # we'll ensure the kernel module is loaded as part of our job script
+  rm ${BOSH_INSTALL_TARGET}/bin/falco-probe-loader
+popd
