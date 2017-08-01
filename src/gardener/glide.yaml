@@ -1,0 +1,6 @@
+package: .
+import:
+- package: code.cloudfoundry.org/garden
+  subpackages:
+  - client
+  - client/connection

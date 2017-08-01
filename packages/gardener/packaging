@@ -1,0 +1,18 @@
+set -e
+
+tar xzvf go-1.8/*.tar.gz
+
+export GOROOT=$(readlink -f go)
+export PATH="$PATH:${GOROOT}/bin"
+
+mkdir -p workspace/src
+
+export GOPATH=$(readlink -f workspace)
+
+mv gardener workspace/src
+
+cd workspace/src/gardener
+
+go build main.go
+
+cp main ${BOSH_INSTALL_TARGET}/gardener

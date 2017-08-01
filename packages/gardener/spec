@@ -1,0 +1,6 @@
+---
+name: gardener
+
+files:
+- go-1.8/*
+- gardener/**/*

@@ -1,0 +1,63 @@
+hash: 367274403ca1ded58204c7bfa2c0602a1883c609a90341d61c73419d524018f2
+updated: 2017-07-31T21:17:28.164839781-07:00
+imports:
+- name: code.cloudfoundry.org/garden
+  version: c3a939e5478c9cad238bdf7566cfd264bd8e925b
+  subpackages:
+  - client
+  - client/connection
+  - routes
+  - transport
+- name: code.cloudfoundry.org/go-loggregator
+  version: 1c991136f3e2de106a36e9c78b8c6ece8f46d67e
+  subpackages:
+  - rpc/loggregator_v2
+- name: code.cloudfoundry.org/lager
+  version: 438ab98cc3b9b81e97c2281422b2722cd8e80ed8
+- name: github.com/bmizerany/pat
+  version: c068ca2f0aacee5ac3681d68e4d0a003b7d1fd2c
+- name: github.com/golang/protobuf
+  version: 6a1fa9404c0aebf36c879bc50152edcc953910d2
+  subpackages:
+  - proto
+  - ptypes/any
+- name: github.com/tedsuo/rata
+  version: 0649c23705dfb45a9693b668c4fc1c0666f485d9
+- name: golang.org/x/net
+  version: 054b33e6527139ad5b1ec2f6232c3b175bd9a30c
+  subpackages:
+  - context
+  - http2
+  - http2/hpack
+  - idna
+  - internal/timeseries
+  - lex/httplex
+  - trace
+- name: golang.org/x/text
+  version: 3bd178b88a8180be2df394a1fbb81313916f0e7b
+  subpackages:
+  - secure/bidirule
+  - transform
+  - unicode/bidi
+  - unicode/norm
+- name: google.golang.org/genproto
+  version: 09f6ed296fc66555a25fe4ce95173148778dfa85
+  subpackages:
+  - googleapis/rpc/status
+- name: google.golang.org/grpc
+  version: d8960bd63c6743defa6d54926e5edfa8e4a28e43
+  subpackages:
+  - codes
+  - credentials
+  - grpclb/grpc_lb_v1
+  - grpclog
+  - internal
+  - keepalive
+  - metadata
+  - naming
+  - peer
+  - stats
+  - status
+  - tap
+  - transport
+testImports: []

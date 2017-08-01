@@ -18,11 +18,15 @@ case $1 in
     lsmod | grep falco_probe && rmmod falco_probe
     insmod /var/vcap/packages/falco/lib/falco-probe.ko
 
+    # TODO: don't depend on the metron certs existing, specify our own in job properties
+    export CA_CERT_PATH=/var/vcap/jobs/metron_agent/config/certs/loggregator_ca.crt CERT_PATH=/var/vcap/jobs/metron_agent/config/certs/metron_agent.crt KEY_PATH=/var/vcap/jobs/metron_agent/config/certs/metron_agent.key
+
     exec /var/vcap/packages/falco/bin/falco \
       -c /var/vcap/jobs/falco/config/falco.yaml \
       -r /var/vcap/packages/falco/etc/falco_rules.yaml \
       -r /var/vcap/jobs/falco/config/falco_rules.yaml \
-      -s /var/vcap/sys/log/falco/stats.log
+      -s /var/vcap/sys/log/falco/stats.log \
+      -p "♥%proc.pid♥%proc.ppid"
 
     ;;
 
