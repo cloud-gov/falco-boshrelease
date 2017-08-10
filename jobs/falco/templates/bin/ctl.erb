@@ -2,10 +2,10 @@
 
 set -eux
 
-exec >>/var/vcap/sys/log/falco/stdout.log 2>>/var/vcap/sys/log/falco/stderr.log
-
 mkdir -p /var/vcap/sys/log/falco
 mkdir -p /var/vcap/sys/run/falco
+
+exec >>/var/vcap/sys/log/falco/stdout.log 2>>/var/vcap/sys/log/falco/stderr.log
 
 PIDFILE=/var/vcap/sys/run/falco/falco.pid
 
