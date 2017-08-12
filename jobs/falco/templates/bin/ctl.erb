@@ -19,9 +19,13 @@ case $1 in
     insmod /var/vcap/packages/falco/lib/falco-probe.ko
 
     <% if p('diego_cell') then %>
-    export CA_CERT_PATH=/var/vcap/jobs/falco/config/certs/loggregator_ca.crt
-    export CERT_PATH=/var/vcap/jobs/falco/config/certs/metron.crt
-    export KEY_PATH=/var/vcap/jobs/falco/config/certs/metron.key
+    export LOGGREGATOR_CA_CERT_PATH=/var/vcap/jobs/falco/config/certs/loggregator_ca.crt
+    export METRON_CERT_PATH=/var/vcap/jobs/falco/config/certs/metron.crt
+    export METRON_KEY_PATH=/var/vcap/jobs/falco/config/certs/metron.key
+
+    export BBS_CA_CERT_PATH=/var/vcap/jobs/falco/config/certs/bbs_ca.crt
+    export BBS_CERT_PATH=/var/vcap/jobs/falco/config/certs/bbs.crt
+    export BBS_KEY_PATH=/var/vcap/jobs/falco/config/certs/bbs.key
     <% end %>
 
     exec /var/vcap/packages/falco/bin/falco \

@@ -4,3 +4,4 @@ import:
   subpackages:
   - client
   - client/connection
+- package: code.cloudfoundry.org/bbs

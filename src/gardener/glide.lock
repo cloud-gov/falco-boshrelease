@@ -1,13 +1,22 @@
-hash: 367274403ca1ded58204c7bfa2c0602a1883c609a90341d61c73419d524018f2
-updated: 2017-07-31T21:17:28.164839781-07:00
+hash: 4c16f4df5916562a106ebf922413de14c4198e8cc150794352ad5c1f0326c566
+updated: 2017-08-12T11:40:28.092532274-07:00
 imports:
+- name: code.cloudfoundry.org/bbs
+  version: 0d07dd54e42e776d24331bf0da0a4a2a44f1c078
+  subpackages:
+  - encryption
+  - events
+  - format
+  - models
+- name: code.cloudfoundry.org/cfhttp
+  version: 012f40c12b36dd67274e611f4f44ed932ae155d5
+  subpackages:
+  - unix_transport
 - name: code.cloudfoundry.org/garden
   version: c3a939e5478c9cad238bdf7566cfd264bd8e925b
   subpackages:
   - client
   - client/connection
-  - routes
-  - transport
 - name: code.cloudfoundry.org/go-loggregator
   version: 1c991136f3e2de106a36e9c78b8c6ece8f46d67e
   subpackages:
@@ -16,6 +25,13 @@ imports:
   version: 438ab98cc3b9b81e97c2281422b2722cd8e80ed8
 - name: github.com/bmizerany/pat
   version: c068ca2f0aacee5ac3681d68e4d0a003b7d1fd2c
+- name: github.com/gogo/protobuf
+  version: 1c2b16bc280d6635de6c52fc1471ab962dc36ec9
+  subpackages:
+  - gogoproto
+  - proto
+  - protoc-gen-gogo/descriptor
+  - sortkeys
 - name: github.com/golang/protobuf
   version: 6a1fa9404c0aebf36c879bc50152edcc953910d2
   subpackages:
@@ -23,6 +39,10 @@ imports:
   - ptypes/any
 - name: github.com/tedsuo/rata
   version: 0649c23705dfb45a9693b668c4fc1c0666f485d9
+- name: github.com/vito/go-sse
+  version: fd69d275caac5d78d793e77ddbe9bd2001d9b88d
+  subpackages:
+  - sse
 - name: golang.org/x/net
   version: 054b33e6527139ad5b1ec2f6232c3b175bd9a30c
   subpackages:

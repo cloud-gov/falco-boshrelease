@@ -10,6 +10,9 @@ templates:
   config/metron.crt.erb: config/certs/metron.crt
   config/metron.key.erb: config/certs/metron.key
   config/loggregator_ca.crt.erb: config/certs/loggregator_ca.crt
+  config/bbs.crt.erb: config/certs/bbs.crt
+  config/bbs.key.erb: config/certs/bbs.key
+  config/bbs_ca.crt.erb: config/certs/bbs_ca.crt
 properties:
   configuration:
     description: A hash representing the falco.yml configuration file https://github.com/draios/falco/wiki/Falco-Configuration
@@ -51,3 +54,9 @@ properties:
     description: "TLS certificate for metron"
   loggregator.tls.metron.key:
     description: "TLS key for metron"
+  diego.cfdot.bbs.ca_cert:
+    description: "PEM-encoded CA certificate"
+  diego.cfdot.bbs.client_cert:
+    description: "PEM-encoded client certificate"
+  diego.cfdot.bbs.client_key:
+    description: "PEM-encoded client key"

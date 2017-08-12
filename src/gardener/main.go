@@ -13,8 +13,10 @@ import (
 	"syscall"
 	"time"
 
-	gclient "code.cloudfoundry.org/garden/client"
-	gconn "code.cloudfoundry.org/garden/client/connection"
+	"code.cloudfoundry.org/bbs"
+	"code.cloudfoundry.org/bbs/models"
+	"code.cloudfoundry.org/lager"
+
 	loggregator "code.cloudfoundry.org/go-loggregator"
 )
 
@@ -80,6 +82,61 @@ func checkPid(pid int) error {
 
 	return nil
 }
+
+
+func getAppInfoFromContainerId(containerId string) (string, int, error) {
+	// sigh... why does the bbs client demand you give it a logger?
+	logger := lager.NewLogger("gardener")
+
+	// connect to BBS
+	bbsClient, err := bbs.NewSecureClient(
+		"https://bbs.service.cf.internal:8889",
+		os.Getenv("BBS_CA_CERT_PATH"),
+		os.Getenv("BBS_CERT_PATH"),
+		os.Getenv("BBS_KEY_PATH"),
+		0,
+		0,
+	)
+	if err != nil {
+		return "", -1, err
+	}
+
+	// since we have to iterate over all ActualLRPs to find the one we want
+	// make it a bit faster by filtering by the our instance id
+	// since we know the event happened on the cell we are running on
+    cellId, err := ioutil.ReadFile("/var/vcap/instance/id")
+    if err != nil {
+		return "", -1, err
+    }
+	actualLRPFilter := models.ActualLRPFilter{
+			CellID: string(cellId),
+			Domain: "",
+	}
+
+	actualLRPGroups, err := bbsClient.ActualLRPGroups(logger, actualLRPFilter)
+	if err != nil {
+		return "", -1, err
+	}
+
+	// iterate through each ActualLRP group to find the one that matches our instance id
+	// then find the DesiredLRP that created our instance
+	// With those two pieces of info, we can find our App ID to send logs to
+	// and the actual index of the app that raised the alert
+	for _, actualLRPGroup := range actualLRPGroups {
+		if actualLRPGroup.Instance.ActualLRPInstanceKey.InstanceGuid == containerId {
+
+			desiredLRP, err := bbsClient.DesiredLRPByProcessGuid(logger, actualLRPGroup.Instance.ActualLRPKey.ProcessGuid)
+			if err != nil {
+				return "", -1, err
+			}
+
+			return desiredLRP.LogGuid, int(actualLRPGroup.Instance.ActualLRPKey.Index), nil
+		}
+	}
+
+	return "", -1, fmt.Errorf("Unable to find app for container id %s", containerId)
+}
+
 
 func main() {
 	stat, _ := os.Stdin.Stat()
@@ -151,25 +208,19 @@ func main() {
 		pid = getParent(pid)
 	}
 
-	// ASSUMPTION 2: The container will have a property network.app_id
-	// https://github.com/cloudfoundry/cloud_controller_ng/blob/4e850d050bb7af09f279b56ba6c66af63fe2d35c/spec/unit/lib/cloud_controller/diego/app_recipe_builder_spec.rb#L66
-	container, err := gclient.New(gconn.New("tcp", "127.0.0.1:7777")).Lookup(containerId)
+	// ASSUMPTION 2: The app id is the log_guid attached to the destired-lrp in the BBS
+	appId, appIndex, err := getAppInfoFromContainerId(containerId)
 	if err != nil {
 		fmt.Printf("Could not lookup container %v: %v\n", containerId, err)
 		os.Exit(6)
 	}
-	properties, err := container.Properties()
-	if err != nil {
-		fmt.Printf("Could not get properties for container %v: %v\n", containerId, err)
-		os.Exit(6)
-	}
 
-	fmt.Printf("Container %v has CF app id %v\n", containerId, properties["network.app_id"])
+	fmt.Printf("Container %v has CF app id %v\n", containerId, appId)
 
 	tlsConfig, err := loggregator.NewIngressTLSConfig(
-		os.Getenv("CA_CERT_PATH"),
-		os.Getenv("CERT_PATH"),
-		os.Getenv("KEY_PATH"),
+		os.Getenv("LOGGREGATOR_CA_CERT_PATH"),
+		os.Getenv("METRON_CERT_PATH"),
+		os.Getenv("METRON_KEY_PATH"),
 	)
 	if err != nil {
 		fmt.Printf("Could not create TLS config: %v\n", err)
@@ -186,7 +237,8 @@ func main() {
 
 	v2Client.EmitLog(
 		evt.Message,
-		loggregator.WithAppInfo(properties["network.app_id"], "FALCO", "0"),
+		loggregator.WithAppInfo(appId, "FALCO", strconv.Itoa(appIndex)),
 	)
 	time.Sleep(time.Second * 2) // https://github.com/cloudfoundry-incubator/go-loggregator/issues/18
+
 }
