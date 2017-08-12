@@ -1,5 +1,5 @@
-hash: 4c16f4df5916562a106ebf922413de14c4198e8cc150794352ad5c1f0326c566
-updated: 2017-08-12T11:40:28.092532274-07:00
+hash: 83c26f9dba60e2dc17ebb39fa3a2cada8bf45623610e4bcb00521fc809b904ca
+updated: 2017-08-12T13:11:34.633447276-07:00
 imports:
 - name: code.cloudfoundry.org/bbs
   version: 0d07dd54e42e776d24331bf0da0a4a2a44f1c078
@@ -25,6 +25,8 @@ imports:
   version: 438ab98cc3b9b81e97c2281422b2722cd8e80ed8
 - name: github.com/bmizerany/pat
   version: c068ca2f0aacee5ac3681d68e4d0a003b7d1fd2c
+- name: github.com/cloudfoundry-community/go-cfclient
+  version: dbe382d68b57a2345f60b71935eb6e8cfa7e5895
 - name: github.com/gogo/protobuf
   version: 1c2b16bc280d6635de6c52fc1471ab962dc36ec9
   subpackages:
@@ -37,6 +39,8 @@ imports:
   subpackages:
   - proto
   - ptypes/any
+- name: github.com/pkg/errors
+  version: c605e284fe17294bda444b34710735b29d1a9d90
 - name: github.com/tedsuo/rata
   version: 0649c23705dfb45a9693b668c4fc1c0666f485d9
 - name: github.com/vito/go-sse
@@ -53,6 +57,11 @@ imports:
   - internal/timeseries
   - lex/httplex
   - trace
+- name: golang.org/x/oauth2
+  version: b5adcc2dcdf009d0391547edc6ecbaff889f5bb9
+  subpackages:
+  - clientcredentials
+  - internal
 - name: golang.org/x/text
   version: 3bd178b88a8180be2df394a1fbb81313916f0e7b
   subpackages:
@@ -60,6 +69,16 @@ imports:
   - transform
   - unicode/bidi
   - unicode/norm
+- name: google.golang.org/appengine
+  version: e234e71924d4aa52444bc76f2f831f13fa1eca60
+  subpackages:
+  - internal
+  - internal/base
+  - internal/datastore
+  - internal/log
+  - internal/remote_api
+  - internal/urlfetch
+  - urlfetch
 - name: google.golang.org/genproto
   version: 09f6ed296fc66555a25fe4ce95173148778dfa85
   subpackages:

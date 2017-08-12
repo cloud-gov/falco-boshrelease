@@ -17,6 +17,8 @@ import (
 	"code.cloudfoundry.org/bbs/models"
 	"code.cloudfoundry.org/lager"
 
+	"github.com/cloudfoundry-community/go-cfclient"
+
 	loggregator "code.cloudfoundry.org/go-loggregator"
 )
 
@@ -83,7 +85,6 @@ func checkPid(pid int) error {
 	return nil
 }
 
-
 func getAppInfoFromContainerId(containerId string) (string, int, error) {
 	// sigh... why does the bbs client demand you give it a logger?
 	logger := lager.NewLogger("gardener")
@@ -104,13 +105,13 @@ func getAppInfoFromContainerId(containerId string) (string, int, error) {
 	// since we have to iterate over all ActualLRPs to find the one we want
 	// make it a bit faster by filtering by the our instance id
 	// since we know the event happened on the cell we are running on
-    cellId, err := ioutil.ReadFile("/var/vcap/instance/id")
-    if err != nil {
+	cellId, err := ioutil.ReadFile("/var/vcap/instance/id")
+	if err != nil {
 		return "", -1, err
-    }
+	}
 	actualLRPFilter := models.ActualLRPFilter{
-			CellID: string(cellId),
-			Domain: "",
+		CellID: string(cellId),
+		Domain: "",
 	}
 
 	actualLRPGroups, err := bbsClient.ActualLRPGroups(logger, actualLRPFilter)
@@ -136,7 +137,6 @@ func getAppInfoFromContainerId(containerId string) (string, int, error) {
 
 	return "", -1, fmt.Errorf("Unable to find app for container id %s", containerId)
 }
-
 
 func main() {
 	stat, _ := os.Stdin.Stat()
@@ -241,4 +241,24 @@ func main() {
 	)
 	time.Sleep(time.Second * 2) // https://github.com/cloudfoundry-incubator/go-loggregator/issues/18
 
+	// TODO: Make this not a toy, but have real logic for what types of events trigger actions in CF
+	if evt.Priority == "Alert" {
+
+		cfClient, err := cfclient.NewClient(&cfclient.Config{
+			ApiAddress:   os.Getenv("API_ADDRESS"),
+			ClientID:     os.Getenv("CLIENT_ID"),
+			ClientSecret: os.Getenv("CLIENT_SECRET"),
+		})
+
+		if err != nil {
+			fmt.Printf("Could not create CF client: %v\n", err)
+			os.Exit(8)
+		}
+
+		err = cfClient.KillAppInstance(appId, strconv.Itoa(appIndex))
+		if err != nil {
+			fmt.Printf("Could not kill app instance: %v\n", err)
+			os.Exit(9)
+		}
+	}
 }

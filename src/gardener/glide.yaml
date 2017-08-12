@@ -1,7 +1,10 @@
 package: .
 import:
+- package: golang.org/x/net
+  version: 054b33e6527139ad5b1ec2f6232c3b175bd9a30c
 - package: code.cloudfoundry.org/garden
   subpackages:
   - client
   - client/connection
 - package: code.cloudfoundry.org/bbs
+- package: github.com/cloudfoundry-community/go-cfclient

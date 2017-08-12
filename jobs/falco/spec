@@ -60,3 +60,9 @@ properties:
     description: "PEM-encoded client certificate"
   diego.cfdot.bbs.client_key:
     description: "PEM-encoded client key"
+  cloud_controller.hostname:
+    description: "Where to find cloud controller"
+  cloud_controller.client_id:
+    description: "A client id with cloud_controller.admin"
+  cloud_controller.client_secret:
+    description: "The client secret"

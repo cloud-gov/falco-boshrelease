@@ -26,6 +26,10 @@ case $1 in
     export BBS_CA_CERT_PATH=/var/vcap/jobs/falco/config/certs/bbs_ca.crt
     export BBS_CERT_PATH=/var/vcap/jobs/falco/config/certs/bbs.crt
     export BBS_KEY_PATH=/var/vcap/jobs/falco/config/certs/bbs.key
+
+    export API_ADDRESS=<%= p("cloud_controller.hostname") %>
+    export CLIENT_ID=<%= p("cloud_controller.client_id") %>
+    export CLIENT_SECRET=<%= p("cloud_controller.client_secret") %>
     <% end %>
 
     exec /var/vcap/packages/falco/bin/falco \
