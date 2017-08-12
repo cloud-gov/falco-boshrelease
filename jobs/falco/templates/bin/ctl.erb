@@ -18,16 +18,22 @@ case $1 in
     lsmod | grep falco_probe && rmmod falco_probe
     insmod /var/vcap/packages/falco/lib/falco-probe.ko
 
-    # TODO: don't depend on the metron certs existing, specify our own in job properties
-    export CA_CERT_PATH=/var/vcap/jobs/metron_agent/config/certs/loggregator_ca.crt CERT_PATH=/var/vcap/jobs/metron_agent/config/certs/metron_agent.crt KEY_PATH=/var/vcap/jobs/metron_agent/config/certs/metron_agent.key
+    <% if p('diego_cell') then %>
+    export CA_CERT_PATH=/var/vcap/jobs/falco/config/certs/loggregator_ca.crt
+    export CERT_PATH=/var/vcap/jobs/falco/config/certs/metron.crt
+    export KEY_PATH=/var/vcap/jobs/falco/config/certs/metron.key
+    <% end %>
 
     exec /var/vcap/packages/falco/bin/falco \
       -c /var/vcap/jobs/falco/config/falco.yaml \
+      <% if p('use_packaged_rules') then %> \
       -r /var/vcap/packages/falco/etc/falco_rules.yaml \
+      <% end %> \
       -r /var/vcap/jobs/falco/config/falco_rules.yaml \
       -s /var/vcap/sys/log/falco/stats.log \
+      <% if p('diego_cell') then %> \
       -p "♥%proc.pid♥%proc.ppid"
-
+      <% end %>
     ;;
 
   stop)

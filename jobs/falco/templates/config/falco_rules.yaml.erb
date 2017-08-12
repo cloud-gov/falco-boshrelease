@@ -1,2 +1,23 @@
-<% require 'yaml' %>
-<%= p("rules").to_yaml %>
+<% require 'yaml'
+
+# tweaks to make falco run better with runc
+# TODO: Figure out why runc is calling setuid constantly: Unexpected setuid call by non-sudo, non-root program (user=nobody parent=<NA> command=runc:[1:CHILD] init uid=root)
+# TODO: Switch this to appending to the list once this drops in a release: https://github.com/draios/falco/pull/264
+runc_fixes = YAML.load(<<-eoyaml
+---
+- list: userexec_binaries
+  items:
+  - sudo
+  - su
+  - "runc:[1:CHILD]"
+eoyaml
+)
+
+default_rules = []
+
+if p("diego_cell") then
+    default_rules = default_rules + runc_fixes
+end
+
+%>
+<%= (default_rules + p("rules")).to_yaml %>

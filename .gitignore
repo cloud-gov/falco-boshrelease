@@ -4,3 +4,4 @@ blobs/*
 .blobs
 .dev_builds
 dev_releases
+src/gardener/main

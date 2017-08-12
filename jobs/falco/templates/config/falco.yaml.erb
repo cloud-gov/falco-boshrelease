@@ -1,2 +1,12 @@
-<% require 'yaml' %>
-<%= p("configuration").to_yaml %>
+<% require 'yaml'
+
+config = p("configuration")
+
+if p("diego_cell") then
+    config["program_output"] = {
+        "enabled" => true,
+        "program" => "/var/vcap/packages/gardener/gardener"
+    }
+end
+%>
+<%= config.to_yaml %>

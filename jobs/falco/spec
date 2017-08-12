@@ -7,6 +7,9 @@ templates:
   bin/ctl.erb: bin/ctl
   config/falco.yaml.erb: config/falco.yaml
   config/falco_rules.yaml.erb: config/falco_rules.yaml
+  config/metron.crt.erb: config/certs/metron.crt
+  config/metron.key.erb: config/certs/metron.key
+  config/loggregator_ca.crt.erb: config/certs/loggregator_ca.crt
 properties:
   configuration:
     description: A hash representing the falco.yml configuration file https://github.com/draios/falco/wiki/Falco-Configuration
@@ -25,9 +28,9 @@ properties:
         filename: /var/vcap/sys/log/falco/event.log
       stdout_output:
         enabled: false
-      program_output:
-        enabled: true
-        program: /var/vcap/packages/gardener/gardener
+  use_packaged_rules:
+    description: If true will load the stock rules shipped with falco in /var/vcap/packages
+    default: true
   rules:
     description: A list representing custom falco rules to load https://github.com/draios/falco/wiki/Falco%20Rules
     default: []
@@ -37,3 +40,14 @@ properties:
       condition: container.id != host and proc.name = bash
       output: shell in a container (user=%user.name container_id=%container.id container_name=%container.name shell=%proc.name parent=%proc.pname cmdline=%proc.cmdline)
       priority: WARNING
+  diego_cell:
+    default: false
+    description: |
+      Set to true when running on a diego cell.
+      Falco will be configured to monitor garden-runc containers and forward events to the application log via metron.
+  loggregator.tls.ca_cert:
+    description: "CA root required for key/cert verification"
+  loggregator.tls.metron.cert:
+    description: "TLS certificate for metron"
+  loggregator.tls.metron.key:
+    description: "TLS key for metron"

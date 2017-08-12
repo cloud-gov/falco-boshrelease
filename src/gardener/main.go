@@ -102,7 +102,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	// this mess to get the pid out of our output
+	// this mess is to get the pid out of our output
 	// TODO: PR to fix this and get better output: https://github.com/draios/falco/issues/261
 	hax := strings.Split(evt.Output, FalcoSplit)
 
