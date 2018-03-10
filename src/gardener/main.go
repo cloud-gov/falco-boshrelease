@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -85,7 +86,7 @@ func checkPid(pid int) error {
 	return nil
 }
 
-func getAppInfoFromContainerId(containerId string) (string, int, error) {
+func getAppInfoFromContainerID(containerID string) (string, int, error) {
 	// sigh... why does the bbs client demand you give it a logger?
 	logger := lager.NewLogger("gardener")
 
@@ -105,12 +106,12 @@ func getAppInfoFromContainerId(containerId string) (string, int, error) {
 	// since we have to iterate over all ActualLRPs to find the one we want
 	// make it a bit faster by filtering by the our instance id
 	// since we know the event happened on the cell we are running on
-	cellId, err := ioutil.ReadFile("/var/vcap/instance/id")
+	cellID, err := ioutil.ReadFile("/var/vcap/instance/id")
 	if err != nil {
 		return "", -1, err
 	}
 	actualLRPFilter := models.ActualLRPFilter{
-		CellID: string(cellId),
+		CellID: string(cellID),
 		Domain: "",
 	}
 
@@ -124,7 +125,7 @@ func getAppInfoFromContainerId(containerId string) (string, int, error) {
 	// With those two pieces of info, we can find our App ID to send logs to
 	// and the actual index of the app that raised the alert
 	for _, actualLRPGroup := range actualLRPGroups {
-		if actualLRPGroup.Instance.ActualLRPInstanceKey.InstanceGuid == containerId {
+		if actualLRPGroup.Instance.ActualLRPInstanceKey.InstanceGuid == containerID {
 
 			desiredLRP, err := bbsClient.DesiredLRPByProcessGuid(logger, actualLRPGroup.Instance.ActualLRPKey.ProcessGuid)
 			if err != nil {
@@ -135,7 +136,28 @@ func getAppInfoFromContainerId(containerId string) (string, int, error) {
 		}
 	}
 
-	return "", -1, fmt.Errorf("Unable to find app for container id %s", containerId)
+	return "", -1, fmt.Errorf("Unable to find app for container id %s", containerID)
+}
+
+func parseDadooCmd(cmdline []string) (bool, string) {
+	if !strings.HasSuffix(cmdline[0], "dadoo") {
+		return false, ""
+	}
+
+	fs := flag.NewFlagSet("cmd", flag.ContinueOnError)
+
+	fs.Bool("tty", false, "")
+	fs.String("socket-dir-path", "", "")
+
+	fs.Parse(cmdline[1:])
+
+	args := fs.Args()
+
+	if len(args) < 4 || args[0] != "exec" {
+		return false, ""
+	}
+
+	return true, args[3]
 }
 
 func main() {
@@ -190,7 +212,8 @@ func main() {
 
 	// walk up the process tree to find the guardian parent process
 	var pid int = opid
-	var containerId string
+	var isDadooCmd bool
+	var containerID string
 	for {
 		if pid == 1 {
 			fmt.Printf("Process %v is not running in a garden container\n", opid)
@@ -200,8 +223,8 @@ func main() {
 		// ASSUMPTION 1: The process we are expecting to find will be named "dadoo", and the third arg to exec subcommand is the container id
 		// https://github.com/cloudfoundry/guardian/blob/d7d2e66b12955edc8b4f8e452ad85480de37d834/cmd/dadoo/main_linux.go#L43
 		cmdline := getCmdline(pid)
-		if strings.HasSuffix(cmdline[0], "dadoo") && cmdline[2] == "exec" {
-			containerId = cmdline[5]
+		isDadooCmd, containerID = parseDadooCmd(cmdline)
+		if isDadooCmd {
 			break
 		}
 
@@ -209,13 +232,13 @@ func main() {
 	}
 
 	// ASSUMPTION 2: The app id is the log_guid attached to the destired-lrp in the BBS
-	appId, appIndex, err := getAppInfoFromContainerId(containerId)
+	appID, appIndex, err := getAppInfoFromContainerID(containerID)
 	if err != nil {
-		fmt.Printf("Could not lookup container %v: %v\n", containerId, err)
+		fmt.Printf("Could not lookup container %v: %v\n", containerID, err)
 		os.Exit(6)
 	}
 
-	fmt.Printf("Container %v has CF app id %v\n", containerId, appId)
+	fmt.Printf("Container %v has CF app id %v\n", containerID, appID)
 
 	tlsConfig, err := loggregator.NewIngressTLSConfig(
 		os.Getenv("LOGGREGATOR_CA_CERT_PATH"),
@@ -237,7 +260,7 @@ func main() {
 
 	v2Client.EmitLog(
 		evt.Message,
-		loggregator.WithAppInfo(appId, "FALCO", strconv.Itoa(appIndex)),
+		loggregator.WithAppInfo(appID, "FALCO", strconv.Itoa(appIndex)),
 	)
 	time.Sleep(time.Second * 2) // https://github.com/cloudfoundry-incubator/go-loggregator/issues/18
 
@@ -255,7 +278,7 @@ func main() {
 			os.Exit(8)
 		}
 
-		err = cfClient.KillAppInstance(appId, strconv.Itoa(appIndex))
+		err = cfClient.KillAppInstance(appID, strconv.Itoa(appIndex))
 		if err != nil {
 			fmt.Printf("Could not kill app instance: %v\n", err)
 			os.Exit(9)
