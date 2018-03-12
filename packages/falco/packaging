@@ -63,10 +63,6 @@ export CMAKE_LIBRARY_PATH="${JQ}/.libs:${LIBB64}/src:${YAMLCPP}/build:${LUAJIT}/
 pushd falco
   # TODO: PR falco so these settings can be overwritten with cmake -D
 
-  # cmake file hardcodes things into /usr and /etc
-  sed -i 's|^\(set(CMAKE_INSTALL_PREFIX\) .*)|\1 '${BOSH_INSTALL_TARGET}')|' CMakeLists.txt
-  sed -i 's|\(set(FALCO_ETC_DIR\) .*)|\1 "'${BOSH_INSTALL_TARGET}'/etc")|' CMakeLists.txt
-
   # source code also hardcodes to /etc
   sed -i 's|\(#define FALCO_INSTALL_CONF_FILE\) .*|\1 "'${BOSH_INSTALL_TARGET}'/etc/falco.yaml"|' userspace/falco/config_falco.h.in
 
@@ -75,7 +71,11 @@ pushd falco
 
   mkdir build
   cd build
-  cmake -DUSE_BUNDLED_DEPS=OFF ..
+  cmake \
+    -DUSE_BUNDLED_DEPS=OFF \
+    -DCMAKE_INSTALL_PREFIX=${BOSH_INSTALL_TARGET} \
+    -DFALCO_ETC_DIR=${BOSH_INSTALL_TARGET}/etc \
+    ..
   make
   make install
 
