@@ -40,7 +40,7 @@ case $1 in
       -r /var/vcap/jobs/falco/config/falco_rules.yaml \
       -s /var/vcap/sys/log/falco/stats.log \
       <% if p('diego_cell') then %> \
-      -p "♥%proc.pid♥%proc.ppid"
+      -p "(pid=%proc.pid, ppid=%proc.ppid)"
       <% end %>
     ;;
 

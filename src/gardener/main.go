@@ -23,16 +23,15 @@ import (
 	loggregator "code.cloudfoundry.org/go-loggregator"
 )
 
-const FalcoSplit = "♥"
-
 type FalcoEvent struct {
-	Output   string `json:"output"`
-	Priority string `json:"priority"`
-	Rule     string `json:"rule"`
-	Time     string `json:"time"`
-	Pid      int
-	PPid     int
-	Message  string
+	Output       string `json:"output"`
+	Priority     string `json:"priority"`
+	Rule         string `json:"rule"`
+	Time         string `json:"time"`
+	OutputFields struct {
+		PID  int `json:"proc.pid"`
+		PPID int `json:"proc.ppid"`
+	} `json:"output_fields"`
 }
 
 func getParent(pid int) int {
@@ -181,28 +180,11 @@ func main() {
 		os.Exit(2)
 	}
 
-	// this mess is to get the pid out of our output
-	// TODO: PR to fix this and get better output: https://github.com/draios/falco/issues/261
-	hax := strings.Split(evt.Output, FalcoSplit)
-
-	evt.Message = hax[0]
-
-	opid, err := strconv.Atoi(strings.TrimSpace(hax[1]))
-	if err != nil {
-		fmt.Printf("%v is not a valid pid. It must be an integer.\n", hax[1])
-		os.Exit(3)
-	}
-	evt.Pid = opid
-	ppid, err := strconv.Atoi(strings.TrimSpace(hax[2]))
-	if err != nil {
-		fmt.Printf("%v is not a valid pid. It must be an integer.\n", hax[2])
-		os.Exit(3)
-	}
-	evt.PPid = ppid
-
 	// if our pid doesn't exist, try the parent.  if it doesn't exist bail
+	opid := evt.OutputFields.PID
+
 	if checkPid(opid) != nil {
-		opid = evt.PPid
+		opid = evt.OutputFields.PPID
 
 		if err := checkPid(opid); err != nil {
 			fmt.Printf("%v", err)
@@ -259,7 +241,7 @@ func main() {
 	}
 
 	v2Client.EmitLog(
-		evt.Message,
+		evt.Output,
 		loggregator.WithAppInfo(appID, "FALCO", strconv.Itoa(appIndex)),
 	)
 	time.Sleep(time.Second * 2) // https://github.com/cloudfoundry-incubator/go-loggregator/issues/18
