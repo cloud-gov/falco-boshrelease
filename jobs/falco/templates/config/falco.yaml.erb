@@ -3,10 +3,12 @@
 config = p("configuration")
 
 if p("diego_cell") then
-    config["program_output"] = {
-        "enabled" => true,
-        "program" => "/var/vcap/packages/gardener/gardener"
-    }
+  config["program_output"] = {
+    "enabled" => true,
+    "program" => "/var/vcap/packages/gardener/gardener",
+    "keep_alive" => true
+  }
+  config["buffered_outputs"] = false
 end
 %>
 <%= config.to_yaml %>

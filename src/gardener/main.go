@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -29,8 +30,9 @@ type FalcoEvent struct {
 	Rule         string `json:"rule"`
 	Time         string `json:"time"`
 	OutputFields struct {
-		PID  int `json:"proc.pid"`
-		PPID int `json:"proc.ppid"`
+		PID   int `json:"proc.pid"`
+		PPID  int `json:"proc.ppid"`
+		PPPID int `json:"proc.apid"`
 	} `json:"output_fields"`
 }
 
@@ -85,22 +87,9 @@ func checkPid(pid int) error {
 	return nil
 }
 
-func getAppInfoFromContainerID(containerID string) (string, int, error) {
+func getAppInfoFromContainerID(containerID string, client bbs.Client) (string, int, error) {
 	// sigh... why does the bbs client demand you give it a logger?
 	logger := lager.NewLogger("gardener")
-
-	// connect to BBS
-	bbsClient, err := bbs.NewSecureClient(
-		"https://bbs.service.cf.internal:8889",
-		os.Getenv("BBS_CA_CERT_PATH"),
-		os.Getenv("BBS_CERT_PATH"),
-		os.Getenv("BBS_KEY_PATH"),
-		0,
-		0,
-	)
-	if err != nil {
-		return "", -1, err
-	}
 
 	// since we have to iterate over all ActualLRPs to find the one we want
 	// make it a bit faster by filtering by the our instance id
@@ -114,7 +103,7 @@ func getAppInfoFromContainerID(containerID string) (string, int, error) {
 		Domain: "",
 	}
 
-	actualLRPGroups, err := bbsClient.ActualLRPGroups(logger, actualLRPFilter)
+	actualLRPGroups, err := client.ActualLRPGroups(logger, actualLRPFilter)
 	if err != nil {
 		return "", -1, err
 	}
@@ -126,7 +115,7 @@ func getAppInfoFromContainerID(containerID string) (string, int, error) {
 	for _, actualLRPGroup := range actualLRPGroups {
 		if actualLRPGroup.Instance.ActualLRPInstanceKey.InstanceGuid == containerID {
 
-			desiredLRP, err := bbsClient.DesiredLRPByProcessGuid(logger, actualLRPGroup.Instance.ActualLRPKey.ProcessGuid)
+			desiredLRP, err := client.DesiredLRPByProcessGuid(logger, actualLRPGroup.Instance.ActualLRPKey.ProcessGuid)
 			if err != nil {
 				return "", -1, err
 			}
@@ -168,28 +157,84 @@ func main() {
 		os.Exit(1)
 	}
 
-	evt := FalcoEvent{}
-	stdin, err := ioutil.ReadAll(os.Stdin)
+	// connect to BBS
+	bbsClient, err := bbs.NewSecureClient(
+		"https://bbs.service.cf.internal:8889",
+		os.Getenv("BBS_CA_CERT_PATH"),
+		os.Getenv("BBS_CERT_PATH"),
+		os.Getenv("BBS_KEY_PATH"),
+		0,
+		0,
+	)
 	if err != nil {
-		fmt.Printf("Failure reading stdin %v\n", err)
+		fmt.Printf("Could not create CF client: %v\n", err)
 		os.Exit(2)
 	}
 
-	if err := json.Unmarshal(stdin, &evt); err != nil {
-		fmt.Printf("Failure parsing JSON: %v\n", err)
-		os.Exit(2)
+	tlsConfig, err := loggregator.NewIngressTLSConfig(
+		os.Getenv("LOGGREGATOR_CA_CERT_PATH"),
+		os.Getenv("METRON_CERT_PATH"),
+		os.Getenv("METRON_KEY_PATH"),
+	)
+	if err != nil {
+		fmt.Printf("Could not create TLS config: %v\n", err)
+		os.Exit(3)
+	}
+	logClient, err := loggregator.NewIngressClient(
+		tlsConfig,
+		loggregator.WithAddr("localhost:3458"),
+	)
+	if err != nil {
+		fmt.Printf("Could not create v2 client: %v\n", err)
+		os.Exit(3)
+	}
+
+	cfClient, err := cfclient.NewClient(&cfclient.Config{
+		ApiAddress:   os.Getenv("API_ADDRESS"),
+		ClientID:     os.Getenv("CLIENT_ID"),
+		ClientSecret: os.Getenv("CLIENT_SECRET"),
+	})
+	if err != nil {
+		fmt.Printf("Could not create CF client: %v\n", err)
+		os.Exit(4)
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		if err := handleEvent(scanner.Text(), bbsClient, logClient, cfClient); err != nil {
+			fmt.Printf("Error processing event: %s\n", err)
+			os.Exit(5)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		fmt.Printf("Error reading standard input: %s\n", err)
+		os.Exit(6)
+	}
+}
+
+func getEventPID(evt FalcoEvent) (int, error) {
+	pids := []int{evt.OutputFields.PID, evt.OutputFields.PPID, evt.OutputFields.PPPID}
+	var err error
+	for _, pid := range pids {
+		err = checkPid(pid)
+		if err == nil {
+			return pid, nil
+		}
+	}
+	return 0, err
+}
+
+func handleEvent(data string, bbsClient bbs.Client, logClient *loggregator.IngressClient, cfClient *cfclient.Client) error {
+	evt := FalcoEvent{}
+	if err := json.Unmarshal([]byte(data), &evt); err != nil {
+		return err
 	}
 
 	// if our pid doesn't exist, try the parent.  if it doesn't exist bail
-	opid := evt.OutputFields.PID
-
-	if checkPid(opid) != nil {
-		opid = evt.OutputFields.PPID
-
-		if err := checkPid(opid); err != nil {
-			fmt.Printf("%v", err)
-			os.Exit(4)
-		}
+	opid, err := getEventPID(evt)
+	if err != nil {
+		fmt.Printf("%v\n", err)
+		return nil
 	}
 
 	// walk up the process tree to find the guardian parent process
@@ -199,7 +244,7 @@ func main() {
 	for {
 		if pid == 1 {
 			fmt.Printf("Process %v is not running in a garden container\n", opid)
-			os.Exit(5)
+			return nil
 		}
 
 		// ASSUMPTION 1: The process we are expecting to find will be named "dadoo", and the third arg to exec subcommand is the container id
@@ -214,33 +259,15 @@ func main() {
 	}
 
 	// ASSUMPTION 2: The app id is the log_guid attached to the destired-lrp in the BBS
-	appID, appIndex, err := getAppInfoFromContainerID(containerID)
+	appID, appIndex, err := getAppInfoFromContainerID(containerID, bbsClient)
 	if err != nil {
 		fmt.Printf("Could not lookup container %v: %v\n", containerID, err)
-		os.Exit(6)
+		return nil
 	}
 
 	fmt.Printf("Container %v has CF app id %v\n", containerID, appID)
 
-	tlsConfig, err := loggregator.NewIngressTLSConfig(
-		os.Getenv("LOGGREGATOR_CA_CERT_PATH"),
-		os.Getenv("METRON_CERT_PATH"),
-		os.Getenv("METRON_KEY_PATH"),
-	)
-	if err != nil {
-		fmt.Printf("Could not create TLS config: %v\n", err)
-		os.Exit(7)
-	}
-	v2Client, err := loggregator.NewIngressClient(
-		tlsConfig,
-		loggregator.WithAddr("localhost:3458"),
-	)
-	if err != nil {
-		fmt.Printf("Could not create v2 client: %v\n", err)
-		os.Exit(7)
-	}
-
-	v2Client.EmitLog(
+	logClient.EmitLog(
 		evt.Output,
 		loggregator.WithAppInfo(appID, "FALCO", strconv.Itoa(appIndex)),
 	)
@@ -248,22 +275,12 @@ func main() {
 
 	// TODO: Make this not a toy, but have real logic for what types of events trigger actions in CF
 	if evt.Priority == "Alert" {
-
-		cfClient, err := cfclient.NewClient(&cfclient.Config{
-			ApiAddress:   os.Getenv("API_ADDRESS"),
-			ClientID:     os.Getenv("CLIENT_ID"),
-			ClientSecret: os.Getenv("CLIENT_SECRET"),
-		})
-
-		if err != nil {
-			fmt.Printf("Could not create CF client: %v\n", err)
-			os.Exit(8)
-		}
-
 		err = cfClient.KillAppInstance(appID, strconv.Itoa(appIndex))
 		if err != nil {
 			fmt.Printf("Could not kill app instance: %v\n", err)
-			os.Exit(9)
+			return err
 		}
 	}
+
+	return nil
 }

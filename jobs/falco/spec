@@ -26,11 +26,8 @@ properties:
         max_burst: 1000
       syslog_output:
         enabled: false
-      file_output:
-        enabled: true
-        filename: /var/vcap/sys/log/falco/event.log
       stdout_output:
-        enabled: false
+        enabled: true
   use_packaged_rules:
     description: If true will load the stock rules shipped with falco in /var/vcap/packages
     default: true
