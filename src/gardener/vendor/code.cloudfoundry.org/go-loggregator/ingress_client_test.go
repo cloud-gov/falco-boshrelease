@@ -7,7 +7,7 @@ import (
 	"code.cloudfoundry.org/go-loggregator"
 	"code.cloudfoundry.org/go-loggregator/rpc/loggregator_v2"
 	"code.cloudfoundry.org/go-loggregator/runtimeemitter"
-	"code.cloudfoundry.org/go-loggregator/testhelpers"
+	"golang.org/x/net/context"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
@@ -16,41 +16,27 @@ import (
 
 var _ = Describe("IngressClient", func() {
 	var (
-		client    *loggregator.IngressClient
-		receivers chan loggregator_v2.Ingress_BatchSenderServer
-		server    *testhelpers.TestIngressServer
+		client *loggregator.IngressClient
+		server *testIngressServer
 	)
 
 	BeforeEach(func() {
 		var err error
-		server, err = testhelpers.NewTestIngressServer(fixture("metron.crt"), fixture("metron.key"), fixture("CA.crt"))
-		Expect(err).NotTo(HaveOccurred())
-
-		err = server.Start()
-		Expect(err).NotTo(HaveOccurred())
-
-		receivers = server.Receivers()
-
-		tlsConfig, err := loggregator.NewIngressTLSConfig(
+		server, err = newTestIngressServer(
+			fixture("server.crt"),
+			fixture("server.key"),
 			fixture("CA.crt"),
-			fixture("client.crt"),
-			fixture("client.key"),
 		)
 		Expect(err).NotTo(HaveOccurred())
 
-		client, err = loggregator.NewIngressClient(
-			tlsConfig,
-			loggregator.WithAddr(server.Addr()),
-			loggregator.WithBatchFlushInterval(50*time.Millisecond),
-			loggregator.WithStringTag("string", "client-string-tag"),
-			loggregator.WithDecimalTag("decimal", 1.234),
-			loggregator.WithIntegerTag("integer", 42),
-		)
+		err = server.start()
 		Expect(err).NotTo(HaveOccurred())
+
+		client = buildIngressClient(server.addr, 50*time.Millisecond)
 	})
 
 	AfterEach(func() {
-		server.Stop()
+		server.stop()
 	})
 
 	It("sends in batches", func() {
@@ -64,7 +50,10 @@ var _ = Describe("IngressClient", func() {
 		}
 
 		Eventually(func() int {
-			b, err := getBatch(receivers)
+			var recv loggregator_v2.Ingress_BatchSenderServer
+			Eventually(server.receivers, 10).Should(Receive(&recv))
+
+			b, err := recv.Recv()
 			if err != nil {
 				return 0
 			}
@@ -79,11 +68,30 @@ var _ = Describe("IngressClient", func() {
 			loggregator.WithAppInfo("app-id", "source-type", "source-instance"),
 			loggregator.WithStdout(),
 		)
-		env, err := getEnvelopeAt(receivers, 0)
+		env, err := getEnvelopeAt(server.receivers, 0)
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(env.Tags["source_instance"].GetText()).To(Equal("source-instance"))
 		Expect(env.SourceId).To(Equal("app-id"))
+		Expect(env.InstanceId).To(Equal("source-instance"))
+
+		ts := time.Unix(0, env.Timestamp)
+		Expect(ts).Should(BeTemporally("~", time.Now(), time.Second))
+		log := env.GetLog()
+		Expect(log).NotTo(BeNil())
+		Expect(log.Payload).To(Equal([]byte("message")))
+		Expect(log.Type).To(Equal(loggregator_v2.Log_OUT))
+	})
+
+	It("sends logs", func() {
+		client.EmitLog(
+			"message",
+			loggregator.WithSourceInfo("source-id", "source-type", "source-instance"),
+			loggregator.WithStdout(),
+		)
+		env, err := getEnvelopeAt(server.receivers, 0)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(env.SourceId).To(Equal("source-id"))
 		Expect(env.InstanceId).To(Equal("source-instance"))
 
 		ts := time.Unix(0, env.Timestamp)
@@ -100,10 +108,9 @@ var _ = Describe("IngressClient", func() {
 			loggregator.WithAppInfo("app-id", "source-type", "source-instance"),
 		)
 
-		env, err := getEnvelopeAt(receivers, 0)
+		env, err := getEnvelopeAt(server.receivers, 0)
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(env.Tags["source_instance"].GetText()).To(Equal("source-instance"))
 		Expect(env.SourceId).To(Equal("app-id"))
 		Expect(env.InstanceId).To(Equal("source-instance"))
 
@@ -119,11 +126,11 @@ var _ = Describe("IngressClient", func() {
 		client.EmitGauge(
 			loggregator.WithGaugeValue("name-a", 1, "unit-a"),
 			loggregator.WithGaugeValue("name-b", 2, "unit-b"),
-			loggregator.WithGaugeTags(map[string]string{"some-tag": "some-tag-value"}),
-			loggregator.WithGaugeAppInfo("app-id"),
+			loggregator.WithEnvelopeTags(map[string]string{"some-tag": "some-tag-value"}),
+			loggregator.WithGaugeAppInfo("app-id", 123),
 		)
 
-		env, err := getEnvelopeAt(receivers, 0)
+		env, err := getEnvelopeAt(server.receivers, 0)
 		Expect(err).NotTo(HaveOccurred())
 
 		ts := time.Unix(0, env.Timestamp)
@@ -131,10 +138,57 @@ var _ = Describe("IngressClient", func() {
 		metrics := env.GetGauge()
 		Expect(metrics).NotTo(BeNil())
 		Expect(env.SourceId).To(Equal("app-id"))
+		Expect(env.InstanceId).To(Equal("123"))
 		Expect(metrics.GetMetrics()).To(HaveLen(2))
 		Expect(metrics.GetMetrics()["name-a"].Value).To(Equal(1.0))
 		Expect(metrics.GetMetrics()["name-b"].Value).To(Equal(2.0))
-		Expect(env.Tags["some-tag"].GetText()).To(Equal("some-tag-value"))
+		Expect(env.Tags["some-tag"]).To(Equal("some-tag-value"))
+	})
+
+	It("sends gauge metrics", func() {
+		client.EmitGauge(
+			loggregator.WithGaugeValue("name-a", 1, "unit-a"),
+			loggregator.WithGaugeValue("name-b", 2, "unit-b"),
+			loggregator.WithEnvelopeTags(map[string]string{"some-tag": "some-tag-value"}),
+			loggregator.WithGaugeSourceInfo("source-id", "instance-id"),
+		)
+
+		env, err := getEnvelopeAt(server.receivers, 0)
+		Expect(err).NotTo(HaveOccurred())
+
+		ts := time.Unix(0, env.Timestamp)
+		Expect(ts).Should(BeTemporally("~", time.Now(), time.Second))
+		metrics := env.GetGauge()
+		Expect(metrics).NotTo(BeNil())
+		Expect(env.SourceId).To(Equal("source-id"))
+		Expect(env.InstanceId).To(Equal("instance-id"))
+		Expect(metrics.GetMetrics()).To(HaveLen(2))
+		Expect(metrics.GetMetrics()["name-a"].Value).To(Equal(1.0))
+		Expect(metrics.GetMetrics()["name-b"].Value).To(Equal(2.0))
+		Expect(env.Tags["some-tag"]).To(Equal("some-tag-value"))
+	})
+
+	It("sends timers", func() {
+		stopTime := time.Now()
+		startTime := stopTime.Add(-time.Minute)
+
+		client.EmitTimer("http", startTime, stopTime,
+			loggregator.WithEnvelopeTags(map[string]string{"some-tag": "some-tag-value"}),
+			loggregator.WithTimerSourceInfo("source-id", "instance-id"),
+		)
+
+		env, err := getEnvelopeAt(server.receivers, 0)
+		Expect(err).ToNot(HaveOccurred())
+
+		Expect(env.GetSourceId()).To(Equal("source-id"))
+		Expect(env.GetInstanceId()).To(Equal("instance-id"))
+		Expect(env.Tags["some-tag"]).To(Equal("some-tag-value"))
+
+		timer := env.GetTimer()
+		Expect(timer).ToNot(BeNil())
+		Expect(timer.GetName()).To(Equal("http"))
+		Expect(timer.GetStart()).To(Equal(startTime.UnixNano()))
+		Expect(timer.GetStop()).To(Equal(stopTime.UnixNano()))
 	})
 
 	It("works with the runtime emitter", func() {
@@ -145,70 +199,118 @@ var _ = Describe("IngressClient", func() {
 		runtimeemitter.New(client)
 	})
 
-	DescribeTable("tagging", func(emit func()) {
+	DescribeTable("emitting different envelope types", func(emit func()) {
 		emit()
 
-		env, err := getEnvelopeAt(receivers, 0)
+		env, err := getEnvelopeAt(server.receivers, 0)
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(env.Tags["string"].GetText()).To(Equal("client-string-tag"), "The client tag for string was not set properly")
-		Expect(env.Tags["decimal"].GetDecimal()).To(Equal(1.234), "The client tag for decimal was not set properly")
-		Expect(env.Tags["integer"].GetInteger()).To(Equal(int64(42)), "The client tag for integer was not set properly")
-
-		Expect(env.Tags["envelope-string"].GetText()).To(Equal("envelope-string-tag"), "The envelope tag for string was not set properly")
-		Expect(env.Tags["envelope-decimal"].GetDecimal()).To(Equal(1.234), "The envelope tag for decimal was not set properly")
-		Expect(env.Tags["envelope-integer"].GetInteger()).To(Equal(int64(42)), "The envelope tag for integer was not set properly")
+		Expect(env.Tags["string"]).To(Equal("client-string-tag"), "The client tag for string was not set properly")
+		Expect(env.Tags["envelope-string"]).To(Equal("envelope-string-tag"), "The envelope tag for string was not set properly")
 	},
 		Entry("logs", func() {
 			client.EmitLog(
 				"message",
-				loggregator.WithEnvelopeStringTag("envelope-string", "envelope-string-tag"),
-				loggregator.WithEnvelopeDecimalTag("envelope-decimal", 1.234),
-				loggregator.WithEnvelopeIntegerTag("envelope-integer", 42),
+				loggregator.WithEnvelopeTag("envelope-string", "envelope-string-tag"),
 			)
 		}),
 		Entry("gauge", func() {
 			client.EmitGauge(
 				loggregator.WithGaugeValue("gauge-name", 123.4, "some-unit"),
-				loggregator.WithEnvelopeStringTag("envelope-string", "envelope-string-tag"),
-				loggregator.WithEnvelopeDecimalTag("envelope-decimal", 1.234),
-				loggregator.WithEnvelopeIntegerTag("envelope-integer", 42),
+				loggregator.WithEnvelopeTag("envelope-string", "envelope-string-tag"),
 			)
 		}),
 		Entry("counter", func() {
 			client.EmitCounter(
 				"foo",
-				loggregator.WithEnvelopeStringTag("envelope-string", "envelope-string-tag"),
-				loggregator.WithEnvelopeDecimalTag("envelope-decimal", 1.234),
-				loggregator.WithEnvelopeIntegerTag("envelope-integer", 42),
+				loggregator.WithEnvelopeTag("envelope-string", "envelope-string-tag"),
 			)
 		}),
 	)
 
-	Describe("With functions", func() {
-		Describe("WithDelta()", func() {
-			It("sets the counter's delta to the given value", func() {
-				e := &loggregator_v2.Envelope{
-					Message: &loggregator_v2.Envelope_Counter{
-						Counter: &loggregator_v2.Counter{},
-					},
-				}
-				loggregator.WithDelta(99)(e)
-				Expect(e.GetCounter().GetDelta()).To(Equal(uint64(99)))
-			})
-		})
+	It("sets the counter's delta to the given value", func() {
+		e := &loggregator_v2.Envelope{
+			Message: &loggregator_v2.Envelope_Counter{
+				Counter: &loggregator_v2.Counter{},
+			},
+		}
+		loggregator.WithDelta(99)(e)
+		Expect(e.GetCounter().GetDelta()).To(Equal(uint64(99)))
+	})
+
+	It("sets the app info for a counter", func() {
+		e := &loggregator_v2.Envelope{
+			Message: &loggregator_v2.Envelope_Counter{
+				Counter: &loggregator_v2.Counter{},
+			},
+		}
+		loggregator.WithCounterAppInfo("some-guid", 101)(e)
+		Expect(e.GetSourceId()).To(Equal("some-guid"))
+		Expect(e.GetInstanceId()).To(Equal("101"))
+	})
+
+	It("sets the source info for a counter", func() {
+		e := &loggregator_v2.Envelope{
+			Message: &loggregator_v2.Envelope_Counter{
+				Counter: &loggregator_v2.Counter{},
+			},
+		}
+		loggregator.WithCounterSourceInfo("source-id", "instance-id")(e)
+		Expect(e.GetSourceId()).To(Equal("source-id"))
+		Expect(e.GetInstanceId()).To(Equal("instance-id"))
+	})
+
+	It("sets the title and body of an event envelope", func() {
+		Eventually(func() error {
+			return client.EmitEvent(
+				context.Background(),
+				"some-title",
+				"some-body",
+			)
+		}).Should(Succeed())
+
+		var envelopeBatch *loggregator_v2.EnvelopeBatch
+		Eventually(server.sendReceiver).Should(Receive(&envelopeBatch))
+
+		env := envelopeBatch.GetBatch()[0]
+		Expect(env.GetEvent()).ToNot(BeNil())
+		Expect(env.GetEvent().GetTitle()).To(Equal("some-title"))
+		Expect(env.GetEvent().GetBody()).To(Equal("some-body"))
+	})
+
+	It("flushes current batch and sends", func() {
+		client := buildIngressClient(server.addr, time.Hour)
+
+		// Ensure client/server are ready
+		Eventually(func() error {
+			return client.EmitEvent(
+				context.Background(),
+				"some-title",
+				"some-body",
+			)
+		}).Should(Succeed())
+
+		client.EmitLog("message")
+		err := client.CloseSend()
+		Expect(err).ToNot(HaveOccurred())
+
+		_, err = getEnvelopeAt(server.receivers, 0)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("does not block on an empty buffer", func(done Done) {
+		defer close(done)
+
+		err := client.CloseSend()
+		Expect(err).ToNot(HaveOccurred())
 	})
 })
 
-func getBatch(receivers chan loggregator_v2.Ingress_BatchSenderServer) (*loggregator_v2.EnvelopeBatch, error) {
+func getEnvelopeAt(receivers chan loggregator_v2.Ingress_BatchSenderServer, idx int) (*loggregator_v2.Envelope, error) {
 	var recv loggregator_v2.Ingress_BatchSenderServer
 	Eventually(receivers, 10).Should(Receive(&recv))
 
-	return recv.Recv()
-}
-
-func getEnvelopeAt(receivers chan loggregator_v2.Ingress_BatchSenderServer, idx int) (*loggregator_v2.Envelope, error) {
-	envBatch, err := getBatch(receivers)
+	envBatch, err := recv.Recv()
 	if err != nil {
 		return nil, err
 	}
@@ -218,4 +320,27 @@ func getEnvelopeAt(receivers chan loggregator_v2.Ingress_BatchSenderServer, idx 
 	}
 
 	return envBatch.Batch[idx], nil
+}
+
+func buildIngressClient(serverAddr string, flushInterval time.Duration) *loggregator.IngressClient {
+	tlsConfig, err := loggregator.NewIngressTLSConfig(
+		fixture("CA.crt"),
+		fixture("client.crt"),
+		fixture("client.key"),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	client, err := loggregator.NewIngressClient(
+		tlsConfig,
+		loggregator.WithAddr(serverAddr),
+		loggregator.WithBatchFlushInterval(flushInterval),
+		loggregator.WithTag("string", "client-string-tag"),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	return client
 }

@@ -8,12 +8,17 @@ import (
 )
 
 var _ = Describe("GaugeMetric", func() {
-	It("emits gauges", func() {
-		g := pulseemitter.NewGaugeMetric("some-gauge", "some-unit", pulseemitter.WithVersion(1, 2))
+	It("prepares the envelope for delivery", func() {
+		g := pulseemitter.NewGaugeMetric(
+			"some-gauge",
+			"some-unit",
+			"my-source-id",
+			pulseemitter.WithVersion(1, 2),
+		)
 
-		g.Set(10)
+		g.Set(10.21)
 
-		spy := newSpyLoggClient()
+		spy := newSpyLogClient()
 		g.Emit(spy)
 
 		e := &loggregator_v2.Envelope{
@@ -22,7 +27,7 @@ var _ = Describe("GaugeMetric", func() {
 					Metrics: make(map[string]*loggregator_v2.GaugeValue),
 				},
 			},
-			Tags: make(map[string]*loggregator_v2.Value),
+			Tags: make(map[string]string),
 		}
 
 		for _, o := range spy.GaugeOpts() {
@@ -30,10 +35,10 @@ var _ = Describe("GaugeMetric", func() {
 		}
 		Expect(e.GetGauge().GetMetrics()).To(HaveLen(1))
 		Expect(e.GetGauge().GetMetrics()).To(HaveKey("some-gauge"))
-		Expect(e.GetGauge().GetMetrics()["some-gauge"].GetValue()).To(Equal(10.0))
+		Expect(e.GetGauge().GetMetrics()["some-gauge"].GetValue()).To(Equal(10.21))
 		Expect(e.GetGauge().GetMetrics()["some-gauge"].GetUnit()).To(Equal("some-unit"))
 
 		Expect(e.GetTags()).To(HaveKey("metric_version"))
-		Expect(e.GetTags()["metric_version"].GetText()).To(Equal("1.2"))
+		Expect(e.GetTags()["metric_version"]).To(Equal("1.2"))
 	})
 })

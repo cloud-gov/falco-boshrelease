@@ -8,15 +8,17 @@ import (
 
 // LogClient is the client used by PulseEmitter to emit metrics. This would
 // usually be the go-loggregator v2 client.
-type LoggClient interface {
+type LogClient interface {
 	EmitCounter(name string, opts ...loggregator.EmitCounterOption)
 	EmitGauge(opts ...loggregator.EmitGaugeOption)
 }
 
 type emitter interface {
-	Emit(c LoggClient)
+	Emit(c LogClient)
 }
 
+// PulseEmitterOption is a function type that is used to configure optional
+// settings for a PulseEmitter.
 type PulseEmitterOption func(*PulseEmitter)
 
 // WithPulseInterval is a PulseEmitterOption for setting the pulsing interval.
@@ -26,19 +28,28 @@ func WithPulseInterval(d time.Duration) PulseEmitterOption {
 	}
 }
 
-// PulseEmitter will emit metrics on a given interval.
-type PulseEmitter struct {
-	loggClient LoggClient
-
-	pulseInterval time.Duration
+// WithSourceID is a PulseEmitterOption for setting the source ID that will be
+// set on all outgoing metrics.
+func WithSourceID(id string) PulseEmitterOption {
+	return func(c *PulseEmitter) {
+		c.sourceID = id
+	}
 }
 
-// New returns a PulseEmitter configured with the given LoggClient and
+// PulseEmitter will emit metrics on a given interval.
+type PulseEmitter struct {
+	logClient LogClient
+
+	pulseInterval time.Duration
+	sourceID      string
+}
+
+// New returns a PulseEmitter configured with the given LogClient and
 // PulseEmitterOptions. The default pulse interval is 60 seconds.
-func New(c LoggClient, opts ...PulseEmitterOption) *PulseEmitter {
+func New(c LogClient, opts ...PulseEmitterOption) *PulseEmitter {
 	pe := &PulseEmitter{
 		pulseInterval: 60 * time.Second,
-		loggClient:    c,
+		logClient:     c,
 	}
 
 	for _, opt := range opts {
@@ -53,8 +64,8 @@ func New(c LoggClient, opts ...PulseEmitterOption) *PulseEmitter {
 // interval configured on the PulseEmitter. If the counter metrics value has
 // not changed since last emitted a 0 value will be emitted. Every time the
 // counter metric is emitted, its delta is reset to 0.
-func (c *PulseEmitter) NewCounterMetric(name string, opts ...MetricOption) *CounterMetric {
-	m := NewCounterMetric(name, opts...)
+func (c *PulseEmitter) NewCounterMetric(name string, opts ...MetricOption) CounterMetric {
+	m := NewCounterMetric(name, c.sourceID, opts...)
 	go c.pulse(m)
 
 	return m
@@ -65,8 +76,8 @@ func (c *PulseEmitter) NewCounterMetric(name string, opts ...MetricOption) *Coun
 // the interval configured on the PulseEmitter. When emitting the gauge
 // metric, it will use the last value given when calling set on the gauge
 // metric.
-func (c *PulseEmitter) NewGaugeMetric(name, unit string, opts ...MetricOption) *GaugeMetric {
-	g := NewGaugeMetric(name, unit, opts...)
+func (c *PulseEmitter) NewGaugeMetric(name, unit string, opts ...MetricOption) GaugeMetric {
+	g := NewGaugeMetric(name, unit, c.sourceID, opts...)
 	go c.pulse(g)
 
 	return g
@@ -74,6 +85,6 @@ func (c *PulseEmitter) NewGaugeMetric(name, unit string, opts ...MetricOption) *
 
 func (c *PulseEmitter) pulse(e emitter) {
 	for range time.Tick(c.pulseInterval) {
-		e.Emit(c.loggClient)
+		e.Emit(c.logClient)
 	}
 }

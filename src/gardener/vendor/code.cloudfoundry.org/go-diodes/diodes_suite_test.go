@@ -1,4 +1,4 @@
-package loggregator_test
+package diodes_test
 
 import (
 	. "github.com/onsi/ginkgo"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestCompatibility(t *testing.T) {
+func TestDiodes(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Compatibility Suite")
+	RunSpecs(t, "Diodes Suite")
 }

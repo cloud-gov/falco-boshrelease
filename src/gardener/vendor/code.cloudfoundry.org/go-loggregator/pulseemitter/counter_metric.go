@@ -4,9 +4,14 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"code.cloudfoundry.org/go-loggregator/rpc/loggregator_v2"
+	"github.com/golang/protobuf/proto"
+
 	loggregator "code.cloudfoundry.org/go-loggregator"
 )
 
+// MetricOption defines a function type that can be used to configure tags for
+// many types of metrics.
 type MetricOption func(map[string]string)
 
 // WithVersion will apply a `metric_version` tag to all envelopes sent about
@@ -27,20 +32,32 @@ func WithTags(tags map[string]string) MetricOption {
 	}
 }
 
-// CounterMetric is used by the pulse emitter to emit counter metrics to the
-// LoggClient.
-type CounterMetric struct {
-	name  string
-	delta uint64
-	tags  map[string]string
+// counterMetric is used by the pulse emitter to emit counter metrics to the
+// LogClient.
+type counterMetric struct {
+	name     string
+	sourceID string
+	delta    uint64
+	tags     map[string]string
 }
 
-// NewCounterMetric returns a new CounterMetric that can be incremented and
-// emitted via a LoggClient.
-func NewCounterMetric(name string, opts ...MetricOption) *CounterMetric {
-	m := &CounterMetric{
-		name: name,
-		tags: make(map[string]string),
+// CounterMetric is used by the pulse emitter to emit counter metrics to the
+// LogClient.
+type CounterMetric interface {
+	// Increment increases the counter's delta by the given value
+	Increment(c uint64)
+
+	// Emit sends the counter values to the LogClient.
+	Emit(c LogClient)
+}
+
+// NewCounterMetric returns a new counterMetric that can be incremented and
+// emitted via a LogClient.
+func NewCounterMetric(name, sourceID string, opts ...MetricOption) CounterMetric {
+	m := &counterMetric{
+		name:     name,
+		sourceID: sourceID,
+		tags:     make(map[string]string),
 	}
 
 	for _, opt := range opts {
@@ -51,24 +68,29 @@ func NewCounterMetric(name string, opts ...MetricOption) *CounterMetric {
 }
 
 // Increment will add the given uint64 to the current delta.
-func (m *CounterMetric) Increment(c uint64) {
+func (m *counterMetric) Increment(c uint64) {
 	atomic.AddUint64(&m.delta, c)
 }
 
-// GetDelta will return the current value of the delta.
-func (m *CounterMetric) GetDelta() uint64 {
-	return atomic.LoadUint64(&m.delta)
-}
-
-// Emit will send the current delta and tagging options to the LoggClient to
-// be emitted. The delta on the CounterMetric will be reset to 0.
-func (m *CounterMetric) Emit(c LoggClient) {
+// Emit will send the current delta and tagging options to the LogClient to
+// be emitted. The delta on the counterMetric will be reset to 0.
+func (m *counterMetric) Emit(c LogClient) {
 	d := atomic.SwapUint64(&m.delta, 0)
-	options := []loggregator.EmitCounterOption{loggregator.WithDelta(d)}
+	options := []loggregator.EmitCounterOption{
+		loggregator.WithDelta(d),
+		m.sourceIDOption,
+	}
 
 	for k, v := range m.tags {
-		options = append(options, loggregator.WithEnvelopeStringTag(k, v))
+		options = append(options, loggregator.WithEnvelopeTag(k, v))
 	}
 
 	c.EmitCounter(m.name, options...)
+}
+
+func (m *counterMetric) sourceIDOption(p proto.Message) {
+	env, ok := p.(*loggregator_v2.Envelope)
+	if ok {
+		env.SourceId = m.sourceID
+	}
 }

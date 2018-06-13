@@ -1,4 +1,5 @@
-# go-loggregator [![ci][ci-badge]][ci-pipeline][![slack.cloudfoundry.org][slack-badge]][loggregator-slack][![GoDoc][go-doc-badge]][go-doc]
+# go-loggregator
+[![GoDoc][go-doc-badge]][go-doc] [![travis][travis-badge]][travis] [![slack.cloudfoundry.org][slack-badge]][loggregator-slack]
 
 This is a golang client library for [Loggregator][loggregator].
 
@@ -8,7 +9,7 @@ At present, Loggregator supports two API versions: v1 (UDP) and v2 (gRPC).
 This library provides clients for both versions.
 
 Note that this library is also versioned. Its versions have *no* relation to
-the Loggregator API. Presently, v2.0.0 is the most recent release.
+the Loggregator API.
 
 ## Usage
 
@@ -16,19 +17,50 @@ This repository should be imported as:
 
 `import loggregator "code.cloudfoundry.org/go-loggregator"`
 
-## Example
+## Examples
 
-Example implementation of the client is provided in `examples/main.go`.
+To build the examples, `cd` into the directory of the example and run `go build`
 
-Build the example client by running `go build -o client main.go`
+### V1 Ingress
 
-Collocate the `client` with a metron agent and set the following environment
-variables: `CA_CERT_PATH`, `CERT_PATH`, `KEY_PATH`
+Emits envelopes to metron using dropsonde.
 
-[ci-badge]:                 https://loggregator.ci.cf-app.com/api/v1/teams/main/pipelines/go-loggregator/jobs/tests/badge
-[ci-pipeline]:              https://loggregator.ci.cf-app.com/teams/main/pipelines/go-loggregator
+### V2 Ingress
+
+Emits envelopes to metron using the V2 loggregator-api.
+
+Required Environment Variables:
+
+* `CA_CERT_PATH`
+* `CERT_PATH`
+* `KEY_PATH`
+
+### Runtime Stats
+
+Emits information about the running Go proccess using a V2 ingress client.
+
+Required Environment Variables:
+
+* `CA_CERT_PATH`
+* `CERT_PATH`
+* `KEY_PATH`
+
+### Envelope Stream Connector
+
+Reads envelopes from the Loggregator API (e.g. Reverse Log Proxy).
+
+Required Environment Variables:
+
+* `CA_CERT_PATH`
+* `CERT_PATH`
+* `KEY_PATH`
+* `LOGS_API_ADDR`
+* `SHARD_ID`
+
 [slack-badge]:              https://slack.cloudfoundry.org/badge.svg
 [loggregator-slack]:        https://cloudfoundry.slack.com/archives/loggregator
 [loggregator]:              https://github.com/cloudfoundry/loggregator
 [go-doc-badge]:             https://godoc.org/code.cloudfoundry.org/go-loggregator?status.svg
 [go-doc]:                   https://godoc.org/code.cloudfoundry.org/go-loggregator
+[travis-badge]:             https://travis-ci.org/cloudfoundry/go-loggregator.svg?branch=master
+[travis]:                   https://travis-ci.org/cloudfoundry/go-loggregator?branch=master

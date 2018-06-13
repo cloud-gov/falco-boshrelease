@@ -1,5 +1,5 @@
 hash: 83c26f9dba60e2dc17ebb39fa3a2cada8bf45623610e4bcb00521fc809b904ca
-updated: 2017-08-12T13:11:34.633447276-07:00
+updated: 2018-06-13T10:52:20.70782844-07:00
 imports:
 - name: code.cloudfoundry.org/bbs
   version: 0d07dd54e42e776d24331bf0da0a4a2a44f1c078
@@ -17,8 +17,10 @@ imports:
   subpackages:
   - client
   - client/connection
+- name: code.cloudfoundry.org/go-diodes
+  version: 361f4b34988b402fbf4d5b744cc9b35959c2ac4e
 - name: code.cloudfoundry.org/go-loggregator
-  version: 1c991136f3e2de106a36e9c78b8c6ece8f46d67e
+  version: 87c180b3121a44d5ce6a15974a47f50c5a7a50ee
   subpackages:
   - rpc/loggregator_v2
 - name: code.cloudfoundry.org/lager

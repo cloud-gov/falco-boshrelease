@@ -1,4 +1,4 @@
-// v1 provides a client to connect with the loggregtor v1 API
+// Package v1 provides a client to connect with the loggregtor v1 API
 //
 // Loggregator's v1 client library is better known to the Cloud Foundry
 // community as Dropsonde (github.com/cloudfoundry/dropsonde). The code here
@@ -9,47 +9,23 @@ package v1
 import (
 	"io/ioutil"
 	"log"
+	"strconv"
 	"time"
 
 	loggregator "code.cloudfoundry.org/go-loggregator"
-	"code.cloudfoundry.org/go-loggregator/rpc/loggregator_v2"
-	"code.cloudfoundry.org/go-loggregator/v1/conversion"
 
 	"github.com/cloudfoundry/dropsonde"
-	"github.com/cloudfoundry/dropsonde/logs"
-	"github.com/cloudfoundry/dropsonde/metrics"
 	"github.com/cloudfoundry/sonde-go/events"
+	"github.com/gogo/protobuf/proto"
 )
 
 type ClientOption func(*Client)
 
-// WithStringTag allows for the configuration of arbitrary string value
+// WithTag allows for the configuration of arbitrary string value
 // metadata which will be included in all data sent to Loggregator
-func WithStringTag(name, value string) ClientOption {
+func WithTag(name, value string) ClientOption {
 	return func(c *Client) {
-		c.tags[name] = &loggregator_v2.Value{
-			Data: &loggregator_v2.Value_Text{Text: value},
-		}
-	}
-}
-
-// WithDecimalTag allows for the configuration of arbitrary decimal value
-// metadata which will be included in all data sent to Loggregator
-func WithDecimalTag(name string, value float64) ClientOption {
-	return func(c *Client) {
-		c.tags[name] = &loggregator_v2.Value{
-			Data: &loggregator_v2.Value_Decimal{Decimal: value},
-		}
-	}
-}
-
-// WithIntegerTag allows for the configuration of arbitrary integer value
-// metadata which will be included in all data sent to Loggregator
-func WithIntegerTag(name string, value int64) ClientOption {
-	return func(c *Client) {
-		c.tags[name] = &loggregator_v2.Value{
-			Data: &loggregator_v2.Value_Integer{Integer: value},
-		}
+		c.tags[name] = value
 	}
 }
 
@@ -61,12 +37,19 @@ func WithLogger(l loggregator.Logger) ClientOption {
 	}
 }
 
+// Client represents an emitter into loggregator. It should be created with
+// the NewClient constructor.
+type Client struct {
+	tags   map[string]string
+	logger loggregator.Logger
+}
+
 // NewClient creates a v1 loggregator client. This is a wrapper around the
 // dropsonde package that will write envelopes to loggregator over UDP. Before
 // calling NewClient you should call dropsonde.Initialize.
 func NewClient(opts ...ClientOption) (*Client, error) {
 	c := &Client{
-		tags:   make(map[string]*loggregator_v2.Value),
+		tags:   make(map[string]string),
 		logger: log.New(ioutil.Discard, "", 0),
 	}
 
@@ -77,134 +60,204 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 	return c, nil
 }
 
-// Client represents an emitter into loggregator. It should be created with
-// the NewClient constructor.
-type Client struct {
-	tags   map[string]*loggregator_v2.Value
-	logger loggregator.Logger
-}
-
 // EmitLog sends a message to loggregator.
 func (c *Client) EmitLog(message string, opts ...loggregator.EmitLogOption) {
-	v2Envelope := &loggregator_v2.Envelope{
-		Timestamp: time.Now().UnixNano(),
-		Message: &loggregator_v2.Envelope_Log{
-			Log: &loggregator_v2.Log{
-				Payload: []byte(message),
-				Type:    loggregator_v2.Log_ERR,
+	w := envelopeWrapper{
+		Messages: []*events.Envelope{
+			{
+				Timestamp: proto.Int64(time.Now().UnixNano()),
+				EventType: events.Envelope_LogMessage.Enum(),
+				LogMessage: &events.LogMessage{
+					MessageType: events.LogMessage_ERR.Enum(),
+					Message:     []byte(message),
+					Timestamp:   proto.Int64(time.Now().UnixNano()),
+				},
 			},
 		},
-		Tags: make(map[string]*loggregator_v2.Value),
+		Tags: make(map[string]string),
 	}
 
 	for _, o := range opts {
-		o(v2Envelope)
+		o(&w)
 	}
-	c.emitEnvelopes(v2Envelope)
+	w.Messages[0].Tags = w.Tags
+
+	c.emitEnvelope(w)
 }
 
 // EmitGauge sends the configured gauge values to loggregator.
 // If no EmitGaugeOption values are present, no envelopes will be emitted.
 func (c *Client) EmitGauge(opts ...loggregator.EmitGaugeOption) {
-	v2Envelope := &loggregator_v2.Envelope{
-		Timestamp: time.Now().UnixNano(),
-		Message: &loggregator_v2.Envelope_Gauge{
-			Gauge: &loggregator_v2.Gauge{
-				Metrics: make(map[string]*loggregator_v2.GaugeValue),
-			},
-		},
-		Tags: make(map[string]*loggregator_v2.Value),
+	w := envelopeWrapper{
+		Tags: make(map[string]string),
 	}
 
 	for _, o := range opts {
-		o(v2Envelope)
+		o(&w)
 	}
-	c.emitEnvelopes(v2Envelope)
+
+	if c.promoteToContainerMetric(w) {
+		return
+	}
+
+	for _, e := range w.Messages {
+		e.Timestamp = proto.Int64(time.Now().UnixNano())
+		e.EventType = events.Envelope_ValueMetric.Enum()
+		e.Tags = w.Tags
+	}
+
+	c.emitEnvelope(w)
+}
+
+// Check to see if the envelope should be promoted to a ContainerMetric.
+func (c *Client) promoteToContainerMetric(w envelopeWrapper) bool {
+	if len(w.Messages) != 5 {
+		return false
+	}
+	appID, ok := w.Tags["source_id"]
+	if !ok {
+		return false
+	}
+	instanceIndex, err := strconv.Atoi(w.Tags["instance_id"])
+	if err != nil {
+		return false
+	}
+
+	// We need 5 bools to determine if the envelope has all the required
+	// name/value pairs. Each name will store it's presence in increasing
+	// signifigance (i.e., 'cpu' is stored to bit 0, and 'memory' is stored to
+	// bit 1 ...).
+	cMetric := events.ContainerMetric{
+		ApplicationId: proto.String(appID),
+		InstanceIndex: proto.Int32(int32(instanceIndex)),
+	}
+
+	var allPresent uint16
+	for _, m := range w.Messages {
+		switch m.GetValueMetric().GetName() {
+		case "cpu":
+			allPresent |= 1
+			cMetric.CpuPercentage = proto.Float64(m.GetValueMetric().GetValue())
+		case "memory":
+			allPresent |= 2
+			cMetric.MemoryBytes = proto.Uint64(uint64(m.GetValueMetric().GetValue()))
+		case "disk":
+			allPresent |= 4
+			cMetric.DiskBytes = proto.Uint64(uint64(m.GetValueMetric().GetValue()))
+		case "memory_quota":
+			allPresent |= 8
+			cMetric.MemoryBytesQuota = proto.Uint64(uint64(m.GetValueMetric().GetValue()))
+		case "disk_quota":
+			allPresent |= 16
+			cMetric.DiskBytesQuota = proto.Uint64(uint64(m.GetValueMetric().GetValue()))
+		default:
+			break
+		}
+	}
+
+	// 0x1f implies that each of the required five fields were populated.
+	if allPresent != 0x1f {
+		return false
+	}
+
+	// Promote to Container
+	container := &events.Envelope{
+		Timestamp:       proto.Int64(time.Now().UnixNano()),
+		EventType:       events.Envelope_ContainerMetric.Enum(),
+		Tags:            w.Tags,
+		ContainerMetric: &cMetric,
+	}
+
+	w.Messages = []*events.Envelope{container}
+	c.emitEnvelope(w)
+
+	return true
 }
 
 // EmitCounter sends a counter envelope with a delta of 1.
 func (c *Client) EmitCounter(name string, opts ...loggregator.EmitCounterOption) {
-	v2Envelope := &loggregator_v2.Envelope{
-		Timestamp: time.Now().UnixNano(),
-		Message: &loggregator_v2.Envelope_Counter{
-			Counter: &loggregator_v2.Counter{
-				Name: name,
-				Value: &loggregator_v2.Counter_Delta{
-					Delta: uint64(1),
+	w := envelopeWrapper{
+		Messages: []*events.Envelope{
+			{
+				Timestamp: proto.Int64(time.Now().UnixNano()),
+				EventType: events.Envelope_CounterEvent.Enum(),
+				CounterEvent: &events.CounterEvent{
+					Name:  proto.String(name),
+					Delta: proto.Uint64(1),
 				},
 			},
 		},
-		Tags: make(map[string]*loggregator_v2.Value),
+		Tags: make(map[string]string),
 	}
 
 	for _, o := range opts {
-		o(v2Envelope)
-	}
-	c.emitEnvelopes(v2Envelope)
-}
-
-func (c *Client) Send() error {
-	return nil
-}
-
-func (c *Client) IncrementCounter(name string) error {
-	return metrics.IncrementCounter(name)
-}
-
-func (c *Client) IncrementCounterWithDelta(name string, value uint64) error {
-	return metrics.AddToCounter(name, value)
-}
-
-func (c *Client) SendAppLog(appID, message, sourceType, sourceInstance string) error {
-	return logs.SendAppLog(appID, message, sourceType, sourceInstance)
-}
-
-func (c *Client) SendAppErrorLog(appID, message, sourceType, sourceInstance string) error {
-	return logs.SendAppErrorLog(appID, message, sourceType, sourceInstance)
-}
-
-func (c *Client) SendAppMetrics(m *events.ContainerMetric) error {
-	return metrics.Send(m)
-}
-
-func (c *Client) SendDuration(name string, duration time.Duration) error {
-	return c.SendComponentMetric(name, float64(duration), "nanos")
-}
-
-func (c *Client) SendMebiBytes(name string, mebibytes int) error {
-	return c.SendComponentMetric(name, float64(mebibytes), "MiB")
-}
-
-func (c *Client) SendMetric(name string, value int) error {
-	return c.SendComponentMetric(name, float64(value), "Metric")
-}
-
-func (c *Client) SendBytesPerSecond(name string, value float64) error {
-	return c.SendComponentMetric(name, value, "B/s")
-}
-
-func (c *Client) SendRequestsPerSecond(name string, value float64) error {
-	return c.SendComponentMetric(name, value, "Req/s")
-}
-
-func (c *Client) SendComponentMetric(name string, value float64, unit string) error {
-	return metrics.SendValue(name, value, unit)
-}
-
-func (c *Client) emitEnvelopes(v2Envelope *loggregator_v2.Envelope) {
-	for k, v := range c.tags {
-		v2Envelope.Tags[k] = v
-	}
-	v2Envelope.Tags["origin"] = &loggregator_v2.Value{
-		Data: &loggregator_v2.Value_Text{
-			Text: dropsonde.DefaultEmitter.Origin(),
-		},
+		o(&w)
 	}
 
-	for _, e := range conversion.ToV1(v2Envelope) {
+	w.Messages[0].Tags = w.Tags
+
+	c.emitEnvelope(w)
+}
+
+func (c *Client) emitEnvelope(w envelopeWrapper) {
+	for _, e := range w.Messages {
+		e.Origin = proto.String(dropsonde.DefaultEmitter.Origin())
+		for k, v := range c.tags {
+			e.Tags[k] = v
+		}
+
 		err := dropsonde.DefaultEmitter.EmitEnvelope(e)
 		if err != nil {
 			c.logger.Printf("Failed to emit envelope: %s", err)
 		}
 	}
+}
+
+// envelopeWrapper is used to setup v1 Envelopes.
+type envelopeWrapper struct {
+	proto.Message
+
+	Messages []*events.Envelope
+	Tags     map[string]string
+}
+
+func (e *envelopeWrapper) SetGaugeAppInfo(appID string, index int) {
+	e.SetSourceInfo(appID, strconv.Itoa(index))
+}
+
+func (e *envelopeWrapper) SetCounterAppInfo(appID string, index int) {
+	e.SetSourceInfo(appID, strconv.Itoa(index))
+}
+
+func (e *envelopeWrapper) SetSourceInfo(sourceID, instanceID string) {
+	e.Tags["source_id"] = sourceID
+	e.Tags["instance_id"] = instanceID
+}
+
+func (e *envelopeWrapper) SetLogAppInfo(appID string, sourceType string, sourceInstance string) {
+	e.Messages[0].GetLogMessage().AppId = proto.String(appID)
+	e.Messages[0].GetLogMessage().SourceType = proto.String(sourceType)
+	e.Messages[0].GetLogMessage().SourceInstance = proto.String(sourceInstance)
+}
+
+func (e *envelopeWrapper) SetLogToStdout() {
+	e.Messages[0].GetLogMessage().MessageType = events.LogMessage_OUT.Enum()
+}
+
+func (e *envelopeWrapper) SetGaugeValue(name string, value float64, unit string) {
+	e.Messages = append(e.Messages, &events.Envelope{
+		ValueMetric: &events.ValueMetric{
+			Name:  proto.String(name),
+			Value: proto.Float64(value),
+			Unit:  proto.String(unit),
+		},
+	})
+}
+
+func (e *envelopeWrapper) SetDelta(d uint64) {
+	e.Messages[0].GetCounterEvent().Delta = proto.Uint64(d)
+}
+
+func (e *envelopeWrapper) SetTag(name string, value string) {
+	e.Tags[name] = value
 }
