@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"code.cloudfoundry.org/bbs"
 	"code.cloudfoundry.org/bbs/models"
@@ -149,12 +148,18 @@ func parseDadooCmd(cmdline []string) (bool, string) {
 }
 
 func main() {
+	exitCode := 0
+	defer func() {
+		os.Exit(exitCode)
+	}()
+
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) != 0 {
 		fmt.Println("This program expects to receive JSON on stdin.")
 		fmt.Println("It was designed to be called by Falco via program_output with json_output: true")
 		fmt.Println("https://github.com/draios/falco/wiki/Falco-Configuration")
-		os.Exit(1)
+		exitCode = 1
+		return
 	}
 
 	// connect to BBS
@@ -168,7 +173,8 @@ func main() {
 	)
 	if err != nil {
 		fmt.Printf("Could not create CF client: %v\n", err)
-		os.Exit(2)
+		exitCode = 2
+		return
 	}
 
 	tlsConfig, err := loggregator.NewIngressTLSConfig(
@@ -178,7 +184,8 @@ func main() {
 	)
 	if err != nil {
 		fmt.Printf("Could not create TLS config: %v\n", err)
-		os.Exit(3)
+		exitCode = 3
+		return
 	}
 	logClient, err := loggregator.NewIngressClient(
 		tlsConfig,
@@ -186,7 +193,8 @@ func main() {
 	)
 	if err != nil {
 		fmt.Printf("Could not create v2 client: %v\n", err)
-		os.Exit(3)
+		exitCode = 3
+		return
 	}
 
 	cfClient, err := cfclient.NewClient(&cfclient.Config{
@@ -196,19 +204,27 @@ func main() {
 	})
 	if err != nil {
 		fmt.Printf("Could not create CF client: %v\n", err)
-		os.Exit(4)
+		exitCode = 4
+		return
 	}
+
+	// make sure we emit any queue log events before exiting
+	defer func() {
+		logClient.CloseSend()
+	}()
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		if err := handleEvent(scanner.Text(), bbsClient, logClient, cfClient); err != nil {
 			fmt.Printf("Error processing event: %s\n", err)
-			os.Exit(5)
+			exitCode = 5
+			return
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		fmt.Printf("Error reading standard input: %s\n", err)
-		os.Exit(6)
+		exitCode = 6
+		return
 	}
 }
 
@@ -271,7 +287,6 @@ func handleEvent(data string, bbsClient bbs.Client, logClient *loggregator.Ingre
 		evt.Output,
 		loggregator.WithAppInfo(appID, "FALCO", strconv.Itoa(appIndex)),
 	)
-	time.Sleep(time.Second * 2) // https://github.com/cloudfoundry-incubator/go-loggregator/issues/18
 
 	// TODO: Make this not a toy, but have real logic for what types of events trigger actions in CF
 	if evt.Priority == "Alert" {
