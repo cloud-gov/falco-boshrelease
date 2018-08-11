@@ -209,9 +209,7 @@ func main() {
 	}
 
 	// make sure we emit any queue log events before exiting
-	defer func() {
-		logClient.CloseSend()
-	}()
+	defer logClient.CloseSend()
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
