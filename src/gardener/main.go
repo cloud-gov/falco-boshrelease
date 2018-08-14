@@ -179,8 +179,8 @@ func main() {
 
 	tlsConfig, err := loggregator.NewIngressTLSConfig(
 		os.Getenv("LOGGREGATOR_CA_CERT_PATH"),
-		os.Getenv("METRON_CERT_PATH"),
-		os.Getenv("METRON_KEY_PATH"),
+		os.Getenv("LOGGREGATOR_AGENT_CERT_PATH"),
+		os.Getenv("LOGGREGATOR_AGENT_KEY_PATH"),
 	)
 	if err != nil {
 		fmt.Printf("Could not create TLS config: %v\n", err)

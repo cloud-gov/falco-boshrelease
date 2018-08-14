@@ -20,8 +20,8 @@ case $1 in
 
     <% if p('diego_cell') then %>
     export LOGGREGATOR_CA_CERT_PATH=/var/vcap/jobs/falco/config/certs/loggregator_ca.crt
-    export METRON_CERT_PATH=/var/vcap/jobs/falco/config/certs/metron.crt
-    export METRON_KEY_PATH=/var/vcap/jobs/falco/config/certs/metron.key
+    export LOGGREGATOR_AGENT_CERT_PATH=/var/vcap/jobs/falco/config/certs/loggregator_agent.crt
+    export LOGGREGATOR_AGENT_KEY_PATH=/var/vcap/jobs/falco/config/certs/loggregator_agent.key
 
     export BBS_CA_CERT_PATH=/var/vcap/jobs/falco/config/certs/bbs_ca.crt
     export BBS_CERT_PATH=/var/vcap/jobs/falco/config/certs/bbs.crt
